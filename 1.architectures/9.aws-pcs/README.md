@@ -70,7 +70,7 @@ Deploy components separately for more control:
 | Component | Description | Deploy | When to Use |
 |-----------|-------------|--------|-------------|
 | **Prerequisites** | VPC, subnets, security groups, FSx filesystems | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/ml-cluster-prerequisites.yaml&stackName=pcs-prerequisites) | Use existing VPC or customize networking |
-| **DLAMI for PCS** | Custom AMI with PCS agent, Slurm 25.05/25.11, Enroot, Pyxis | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/dlami-for-pcs.yaml&stackName=pcs-dlami) | Build custom AMI with specific configurations |
+| **PCS-ready DLAMI with Enroot/Pyxis** | Adds Enroot/Pyxis to PCS-ready DLAMI | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ready-dlami-with-enroot-pyxis.yaml&stackName=pcs-dlami) | Build custom AMI with container support |
 | **PCS Cluster** | Main cluster with login and compute nodes | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/cluster.yaml&stackName=pcs-cluster) | Deploy cluster to existing VPC/FSx |
 | **Add CNG (Single NIC)** | Additional compute nodes with single network interface | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) | Add CPU/GPU queues (G5, P4d, Trn1, etc.) |
 | **Add CNG (Multi NIC)** | P5/P6 nodes with 16/32 network interfaces (On-Demand or Capacity Blocks for ML) | [<kbd>Deploy 🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p5.yaml&stackName=pcs-add-cng-p5) | Add P5, P6-B200 instances |
@@ -89,7 +89,7 @@ For detailed step-by-step deployment instructions, see the [AI/ML for AWS Parall
 |----------|---------|---------------|
 | [`pcs-ml-cluster-deploy-all.yaml`](./assets/pcs-ml-cluster-deploy-all.yaml) | All-in-one nested stack deployment | Prerequisites + DLAMI + Cluster + Optional CNGs |
 | [`ml-cluster-prerequisites.yaml`](./assets/ml-cluster-prerequisites.yaml) | VPC, subnets, FSx for Lustre/OpenZFS | Standalone |
-| [`dlami-for-pcs.yaml`](./assets/dlami-for-pcs.yaml) | EC2 Image Builder for custom AMI | Standalone |
+| [`pcs-ready-dlami-with-enroot-pyxis.yaml`](./assets/pcs-ready-dlami-with-enroot-pyxis.yaml) | EC2 Image Builder for PCS AMI with Enroot/Pyxis | Standalone |
 | [`cluster.yaml`](./assets/cluster.yaml) | PCS cluster with login and compute nodes | Standalone |
 
 ### Add-on Templates
@@ -140,22 +140,19 @@ High-performance instances with 16 or 32 EFA network interfaces. Required for:
 
 ## Custom DLAMI Components
 
-The custom DLAMI built by `dlami-for-pcs.yaml` includes:
+The custom DLAMI built by `pcs-ready-dlami-with-enroot-pyxis.yaml` adds container runtime support to PCS-ready DLAMI:
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
-| **Base Image** | DLAMI Base GPU (Ubuntu 24.04 / AL2023) | Pre-installed NVIDIA drivers and CUDA |
-| **AWS PCS Agent** | Latest | Node lifecycle management |
-| **Slurm** | 25.05 + 25.11 | Workload scheduler (both versions installed) |
+| **Base Image** | PCS-ready DLAMI (Ubuntu 24.04 x86_64) | Pre-installed NVIDIA drivers, CUDA, PCS Agent, and Slurm |
 | **Enroot** | 3.5.0 | Unprivileged container runtime |
 | **Pyxis** | 0.20.0 | Slurm plugin for container jobs |
-| **EFS Utils** | Latest | Mount EFS filesystems |
-| **CloudWatch Agent** | Latest | Metrics and log collection |
-| **SSM Agent** | Latest | Remote management |
 
-**Slurm PATH configuration:**
-- Slurm 25.05 is first in PATH for maximum compatibility
-- Both versions available: `/opt/aws/pcs/scheduler/slurm-25.05` and `/opt/aws/pcs/scheduler/slurm-25.11`
+**What's already included in PCS-ready DLAMI:**
+- AWS PCS Agent for node lifecycle management
+- Slurm 25.05 and 25.11 (both versions available at `/opt/aws/pcs/scheduler/slurm-*`)
+- NVIDIA drivers and CUDA toolkit
+- SSM Agent for remote management
 
 ---
 

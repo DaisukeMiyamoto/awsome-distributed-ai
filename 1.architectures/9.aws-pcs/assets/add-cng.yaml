@@ -119,7 +119,7 @@ Resources:
               - Key: HPCRecipes
                 Value: "true"
               - Key: Name
-                Value: !Sub 'PCS-${AWS::StackName}'
+                Value: !Sub 'PCS-${CngName}'
         MetadataOptions:
           HttpEndpoint: enabled
           HttpPutResponseHopLimit: 4

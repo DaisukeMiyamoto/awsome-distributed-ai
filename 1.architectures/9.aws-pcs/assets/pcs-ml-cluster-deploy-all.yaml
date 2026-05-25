@@ -236,7 +236,7 @@ Parameters:
   OnDemandInstanceType:
     Type: String
     Description: Instance type for additional on-demand compute node group
-    Default: "g5.12xlarge"
+    Default: "g6.xlarge"
 
   OnDemandMaxCount:
     Type: Number
@@ -331,7 +331,7 @@ Resources:
           Value: !Sub '${AWS::StackName}-Prerequisites'
 
   #############################################################################
-  # 2. DLAMI for PCS Stack (Optional)
+  # 2. PCS-ready DLAMI with Enroot/Pyxis Stack (Optional)
   #############################################################################
   DLAMIStack:
     Type: AWS::CloudFormation::Stack
@@ -339,8 +339,8 @@ Resources:
     Properties:
       TemplateURL: !If
         - UseLocalTemplates
-        - dlami-for-pcs.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}dlami-for-pcs.yaml'
+        - pcs-ready-dlami-with-enroot-pyxis.yaml
+        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}pcs-ready-dlami-with-enroot-pyxis.yaml'
       Parameters:
         SemanticVersion: !Ref SemanticVersion
         BuildSchedule: !Ref BuildSchedule
@@ -348,7 +348,7 @@ Resources:
         EnableLifecyclePolicy: 'false'
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-DLAMI'
+          Value: !Sub '${AWS::StackName}-PCS-DLAMI'
 
   #############################################################################
   # 3. PCS Cluster Stack
