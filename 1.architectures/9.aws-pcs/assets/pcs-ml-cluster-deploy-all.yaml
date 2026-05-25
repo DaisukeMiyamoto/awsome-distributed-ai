@@ -56,16 +56,16 @@ Metadata:
           - OnDemandMaxCount
           - OnDemandMinCount
       - Label:
-          default: Additional Capacity Block Compute Node Group for P5 (Optional)
+          default: Additional Multi-NIC Compute Node Group for P5/P6 (Optional)
         Parameters:
-          - DeployCapacityBlockCNG
+          - DeployMultiNicCNG
           - CapacityReservationId
-          - CapacityBlockCngName
-          - CapacityBlockQueueName
-          - CapacityBlockInstanceType
+          - MultiNicCngName
+          - MultiNicQueueName
+          - MultiNicInstanceType
           - NetworkInterfaceCount
-          - CapacityBlockMaxCount
-          - CapacityBlockMinCount
+          - MultiNicMaxCount
+          - MultiNicMinCount
 
 Parameters:
   # S3 Configuration
@@ -251,10 +251,10 @@ Parameters:
     Default: 0
     MinValue: 0
 
-  # Additional Capacity Block Compute Node Group for P5 (Optional)
-  DeployCapacityBlockCNG:
+  # Additional Multi-NIC Compute Node Group for P5/P6 (Optional)
+  DeployMultiNicCNG:
     Type: String
-    Description: Deploy an additional capacity block compute node group for P5 instances
+    Description: Deploy an additional multi-NIC compute node group for P5/P6 instances (On-Demand or Capacity Block)
     Default: 'false'
     AllowedValues:
       - 'true'
@@ -262,45 +262,41 @@ Parameters:
 
   CapacityReservationId:
     Type: String
-    Description: Capacity Reservation ID for capacity block (required if DeployCapacityBlockCNG is true)
+    Description: (Optional) Capacity Reservation ID for Capacity Blocks. Leave empty for On-Demand instances.
     Default: ""
 
-  CapacityBlockCngName:
+  MultiNicCngName:
     Type: String
-    Description: Name for capacity block compute node group
+    Description: Name for multi-NIC compute node group
     Default: "p5"
 
-  CapacityBlockQueueName:
+  MultiNicQueueName:
     Type: String
-    Description: Queue name for capacity block compute node group
+    Description: Queue name for multi-NIC compute node group
     Default: "p5"
 
-  CapacityBlockInstanceType:
+  MultiNicInstanceType:
     Type: String
-    Description: Instance type for capacity block compute node group
+    Description: Instance type for multi-NIC compute node group (P5/P6 series with 16 or 32 network interfaces)
     Default: "p5.48xlarge"
-    AllowedValues:
-      - "p5.48xlarge"
-      - "p5e.48xlarge"
-      - "p5en.48xlarge"
 
   NetworkInterfaceCount:
     Type: String
-    Description: Number of network interfaces for P5 instances (16 for p5en.48xlarge, 32 for p5.48xlarge and p5e.48xlarge)
+    Description: Number of network interfaces (16 for p5en.48xlarge, 32 for p5.48xlarge/p5e.48xlarge/p6-b200.48xlarge)
     Default: "32"
     AllowedValues:
       - "16"
       - "32"
 
-  CapacityBlockMaxCount:
+  MultiNicMaxCount:
     Type: Number
-    Description: Maximum number of instances for capacity block compute node group
+    Description: Maximum number of instances for multi-NIC compute node group
     Default: 4
     MinValue: 0
 
-  CapacityBlockMinCount:
+  MultiNicMinCount:
     Type: Number
-    Description: Minimum number of instances for capacity block compute node group (must be 0 for dynamic scaling)
+    Description: Minimum number of instances for multi-NIC compute node group (must be 0 for dynamic scaling)
     Default: 0
     MinValue: 0
 
@@ -308,7 +304,7 @@ Conditions:
   BuildAMIEnabled: !Equals [!Ref BuildAMI, 'true']
   UseLocalTemplates: !Equals [!Ref S3BucketName, '']
   DeployOnDemandCNGEnabled: !Equals [!Ref DeployOnDemandCNG, 'true']
-  DeployCapacityBlockCNGEnabled: !Equals [!Ref DeployCapacityBlockCNG, 'true']
+  DeployMultiNicCNGEnabled: !Equals [!Ref DeployMultiNicCNG, 'true']
 
 Resources:
   #############################################################################
@@ -426,27 +422,27 @@ Resources:
           Value: !Sub '${AWS::StackName}-OnDemandCNG'
 
   #############################################################################
-  # 5. Additional Capacity Block Compute Node Group Stack (Optional)
+  # 5. Additional Multi-NIC Compute Node Group Stack for P5/P6 (Optional)
   #############################################################################
-  CapacityBlockCNGStack:
+  MultiNicCNGStack:
     Type: AWS::CloudFormation::Stack
-    Condition: DeployCapacityBlockCNGEnabled
+    Condition: DeployMultiNicCNGEnabled
     DependsOn:
       - ClusterStack
     Properties:
       TemplateURL: !If
         - UseLocalTemplates
-        - add-cng-cbml-p5.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-cbml-p5.yaml'
+        - add-cng-p5.yaml
+        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p5.yaml'
       Parameters:
         CapacityReservationId: !Ref CapacityReservationId
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
-        CngName: !Ref CapacityBlockCngName
-        QueueName: !Ref CapacityBlockQueueName
-        InstanceType: !Ref CapacityBlockInstanceType
+        CngName: !Ref MultiNicCngName
+        QueueName: !Ref MultiNicQueueName
+        InstanceType: !Ref MultiNicInstanceType
         NetworkInterfaceCount: !Ref NetworkInterfaceCount
-        MaxCount: !Ref CapacityBlockMaxCount
-        MinCount: !Ref CapacityBlockMinCount
+        MaxCount: !Ref MultiNicMaxCount
+        MinCount: !Ref MultiNicMinCount
         SubnetId: !GetAtt PrerequisitesStack.Outputs.PrimaryPrivateSubnet
         AmiId: !If
           - BuildAMIEnabled
@@ -459,7 +455,7 @@ Resources:
         FSxOpenZFSFilesystemId: !GetAtt PrerequisitesStack.Outputs.FSxOFilesystemId
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-CapacityBlockCNG'
+          Value: !Sub '${AWS::StackName}-MultiNicCNG'
 
 Outputs:
   #############################################################################
@@ -545,13 +541,13 @@ Outputs:
   #############################################################################
   OnDemandCNGDeployed:
     Condition: DeployOnDemandCNGEnabled
-    Description: On-demand compute node group deployed
+    Description: On-demand compute node group deployed (single NIC)
     Value: !Sub '${OnDemandCngName} (${OnDemandInstanceType})'
 
-  CapacityBlockCNGDeployed:
-    Condition: DeployCapacityBlockCNGEnabled
-    Description: Capacity block compute node group deployed
-    Value: !Sub '${CapacityBlockCngName} (${CapacityBlockInstanceType})'
+  MultiNicCNGDeployed:
+    Condition: DeployMultiNicCNGEnabled
+    Description: Multi-NIC compute node group deployed (P5/P6 series)
+    Value: !Sub '${MultiNicCngName} (${MultiNicInstanceType}, ${NetworkInterfaceCount} NICs)'
 
   #############################################################################
   # Additional Information for Manual Add-on Stacks
@@ -559,7 +555,10 @@ Outputs:
   AddComputeNodeGroupCommand:
     Description: Command to manually add additional compute node groups
     Value: !Sub |
-      Use add-cng.yaml or add-cng-cbml-p5.yaml with these parameters:
+      For single NIC instances (CPU/GPU), use add-cng.yaml:
+      For multi-NIC instances (P5/P6 series), use add-cng-p5.yaml:
+
+      Common parameters:
       ClusterId: ${ClusterStack.Outputs.ClusterId}
       SubnetId: ${PrerequisitesStack.Outputs.PrimaryPrivateSubnet}
       ClusterSecurityGroupId: ${PrerequisitesStack.Outputs.SecurityGroup}
@@ -567,3 +566,7 @@ Outputs:
       FSxLustreFilesystemId: ${PrerequisitesStack.Outputs.FSxLustreFilesystemId}
       FSxLustreFilesystemMountName: ${PrerequisitesStack.Outputs.FSxLustreFilesystemMountname}
       FSxOpenZFSFilesystemId: ${PrerequisitesStack.Outputs.FSxOFilesystemId}
+
+      For add-cng-p5.yaml, also specify:
+      NetworkInterfaceCount: 16 or 32
+      CapacityReservationId: (optional, for Capacity Blocks)

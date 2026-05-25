@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Adding Compute Node Group to PCS Cluster with Capacity Blocks for ML with P5 series
+Description: Adding Compute Node Group to PCS Cluster with multi-network interface support for P5 series (On-Demand or Capacity Block)
 
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Capacity Blocks for ML Settings
+          default: Capacity Blocks for ML Settings (Optional)
         Parameters:
           - CapacityReservationId
       - Label:
@@ -32,11 +32,13 @@ Metadata:
 Parameters:
   CapacityReservationId:
     Type: String
-    Description: Capacity Reservation ID
+    Description: (Optional) Capacity Reservation ID for Capacity Blocks. Leave empty for On-Demand instances.
+    Default: ""
+
   ClusterId:
     Type: String
     Description: Cluster ID
-  
+
   CngName:
     Type: String
     Description: Name for Compute Node Group
@@ -47,7 +49,8 @@ Parameters:
 
   InstanceType:
     Type: String
-    Description: Instance Type for Compute Node Group
+    Description: Instance Type for Compute Node Group (e.g., p5.48xlarge, p5e.48xlarge, p5en.48xlarge)
+    Default: "p5.48xlarge"
 
   NetworkInterfaceCount:
     Type: String
@@ -99,6 +102,7 @@ Conditions:
     Fn::Equals:
       - Ref: NetworkInterfaceCount
       - "32"
+  UseCapacityBlock: !Not [!Equals [!Ref CapacityReservationId, ""]]
 
 Resources:
 
@@ -120,7 +124,7 @@ Resources:
       AmiId: !Ref AmiId
       InstanceConfigs:
         - InstanceType: !Ref InstanceType
-      PurchaseOption: CAPACITY_BLOCK
+      PurchaseOption: !If [UseCapacityBlock, CAPACITY_BLOCK, !Ref "AWS::NoValue"]
 
   PCSQueueCompute:
     Type: AWS::PCS::Queue
@@ -137,11 +141,15 @@ Resources:
 
       LaunchTemplateData:
         InstanceType: !Ref InstanceType
-        InstanceMarketOptions:
-          MarketType: capacity-block
-        CapacityReservationSpecification:
-          CapacityReservationTarget:
-            CapacityReservationId: !Ref CapacityReservationId
+        InstanceMarketOptions: !If
+          - UseCapacityBlock
+          - MarketType: capacity-block
+          - !Ref AWS::NoValue
+        CapacityReservationSpecification: !If
+          - UseCapacityBlock
+          - CapacityReservationTarget:
+              CapacityReservationId: !Ref CapacityReservationId
+          - !Ref AWS::NoValue
         TagSpecifications:
           - ResourceType: instance
             Tags:
@@ -153,8 +161,6 @@ Resources:
           HttpEndpoint: enabled
           HttpPutResponseHopLimit: 4
           HttpTokens: required
-        # SecurityGroupIds:
-        #   - !Ref ClusterSecurityGroupId
         UserData:
           Fn::Base64: !Sub |
             MIME-Version: 1.0
@@ -163,7 +169,7 @@ Resources:
             --==MYBOUNDARY==
             Content-Type: text/cloud-config; charset="us-ascii"
             MIME-Version: 1.0
-            
+
             runcmd:
             - mkdir -p /tmp/home
             - rsync -aA /home/ /tmp/home

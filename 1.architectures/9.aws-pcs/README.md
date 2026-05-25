@@ -72,8 +72,8 @@ Deploy components separately for more control:
 | **Prerequisites** | VPC, subnets, security groups, FSx filesystems | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/ml-cluster-prerequisites.yaml&stackName=pcs-prerequisites) | Use existing VPC or customize networking |
 | **DLAMI for PCS** | Custom AMI with PCS agent, Slurm 24.11/25.05, Enroot, Pyxis | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/dlami-for-pcs.yaml&stackName=pcs-dlami) | Build custom AMI with specific configurations |
 | **PCS Cluster** | Main cluster with login and compute nodes | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/cluster.yaml&stackName=pcs-cluster) | Deploy cluster to existing VPC/FSx |
-| **Add On-Demand CNG** | Additional on-demand compute node group | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) | Add GPU/CPU queues to existing cluster |
-| **Add Capacity Block CNG** | P5 compute nodes with capacity blocks | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-cbml-p5.yaml&stackName=pcs-add-cng-cb) | Add P5 instances with capacity reservation |
+| **Add CNG (Single NIC)** | Additional compute nodes with single network interface | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) | Add CPU/GPU queues (G5, P4d, Trn1, etc.) |
+| **Add CNG (Multi NIC)** | P5/P6 nodes with 16/32 network interfaces (On-Demand or Capacity Block) | [<kbd>Deploy</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p5.yaml&stackName=pcs-add-cng-p5) | Add P5, P6-B200 instances |
 
 ### Option 3: Manual Step-by-Step
 
@@ -94,43 +94,56 @@ For detailed step-by-step deployment instructions, see the [AI/ML for AWS Parall
 
 ### Add-on Templates
 
-| Template | Purpose | Prerequisites |
-|----------|---------|---------------|
-| [`add-cng.yaml`](./assets/add-cng.yaml) | Add on-demand compute node group (any instance type) | Existing PCS cluster |
-| [`add-cng-cbml-p5.yaml`](./assets/add-cng-cbml-p5.yaml) | Add P5 compute nodes with Capacity Blocks for ML | Existing PCS cluster + Capacity Reservation |
+| Template | Purpose | Network Interface | Prerequisites |
+|----------|---------|-------------------|---------------|
+| [`add-cng.yaml`](./assets/add-cng.yaml) | Add compute node group for CPU/GPU instances | Single | Existing PCS cluster |
+| [`add-cng-p5.yaml`](./assets/add-cng-p5.yaml) | Add P5/P6 compute nodes (On-Demand or Capacity Block) | Multi (16/32 EFA) | Existing PCS cluster (+ Capacity Reservation for CB) |
 
 ---
 
 ## Supported Compute Options
 
-### 1. On-Demand Instances
-Standard on-demand pricing with auto-scaling support. Suitable for:
+### 1. Single Network Interface Instances (use `add-cng.yaml`)
+Standard instances with single network interface. Suitable for:
 - Development and testing
 - Workloads with unpredictable demand
 - Short-duration training jobs
+- Small to medium scale distributed training
 
 **Recommended instance types:**
-- **CPU**: `c6i.32xlarge`, `c7i.48xlarge`
-- **GPU**: `g5.12xlarge`, `g5.48xlarge`, `p4d.24xlarge`
-- **Trainium**: `trn1.32xlarge`, `trn1n.32xlarge`
+- **CPU**: `c6i.32xlarge`, `c7i.48xlarge`, `c7a.48xlarge`
+- **GPU (Single NIC)**: `g5.12xlarge`, `g5.48xlarge`, `p4d.24xlarge`, `p4de.24xlarge`
+- **Trainium**: `trn1.32xlarge`, `trn1n.32xlarge`, `trn2.48xlarge`
+- **Inferentia**: `inf2.48xlarge`
 
-### 2. On-Demand Capacity Reservations (ODCR)
+### 2. Multi Network Interface Instances (use `add-cng-p5.yaml`)
+High-performance instances with 16 or 32 EFA network interfaces. Required for:
+- Large-scale distributed training (hundreds to thousands of GPUs)
+- Maximum inter-node bandwidth and low latency
+- Multi-node workloads requiring NVLink/NVSwitch
+
+**P5 Series (H100/H200):**
+- `p5.48xlarge`: 8x NVIDIA H100 GPUs (32 EFA interfaces, 3.2 Tbps aggregate network bandwidth)
+- `p5e.48xlarge`: 8x NVIDIA H200 GPUs (32 EFA interfaces, 3.2 Tbps aggregate network bandwidth)
+- `p5en.48xlarge`: 8x NVIDIA H200 GPUs with NVSwitch (16 EFA interfaces, 1.6 Tbps aggregate network bandwidth)
+
+**P6 Series (Blackwell B200):**
+- `p6-b200.48xlarge`: 8x NVIDIA B200 GPUs (32 EFA interfaces)
+
+### 3. On-Demand Capacity Reservations (ODCR)
 Reserved capacity with on-demand flexibility:
 - Guaranteed capacity in specific AZ
 - No long-term commitment
 - Pay on-demand rates when using reserved capacity
+- Supports both single and multi-NIC instances
 
-### 3. Capacity Blocks for ML
-Time-bound GPU capacity reservations:
+### 4. Capacity Blocks for ML
+Time-bound GPU capacity reservations for P5/P6 instances:
 - Reserved for 1-14 days
-- Up to 64 P5.48xlarge instances
+- Up to 64 instances per reservation
 - Ideal for scheduled large-scale training
 - Requires advance purchase
-
-**Supported P5 instances:**
-- `p5.48xlarge`: 8x NVIDIA H100 GPUs (32 EFA interfaces)
-- `p5e.48xlarge`: 8x NVIDIA H200 GPUs (32 EFA interfaces)  
-- `p5en.48xlarge`: 8x NVIDIA H200 GPUs with NVSwitch (16 EFA interfaces)
+- Use `add-cng-p5.yaml` with `CapacityReservationId` parameter
 
 ---
 
@@ -169,7 +182,7 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-### Example 2: GPU Cluster with G5 Instances
+### Example 2: GPU Cluster with G5 Instances (Single NIC)
 
 ```bash
 aws cloudformation create-stack \
@@ -185,26 +198,62 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-### Example 3: P5 Cluster with Capacity Block
+### Example 3: P5 On-Demand Cluster (Multi NIC)
+
+```bash
+aws cloudformation create-stack \
+  --stack-name p5-ondemand-cluster \
+  --template-url https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml \
+  --parameters \
+    ParameterKey=PrimarySubnetAZ,ParameterValue=us-east-1a \
+    ParameterKey=DeployMultiNicCNG,ParameterValue=true \
+    ParameterKey=MultiNicCngName,ParameterValue=p5-od \
+    ParameterKey=MultiNicQueueName,ParameterValue=p5 \
+    ParameterKey=MultiNicInstanceType,ParameterValue=p5.48xlarge \
+    ParameterKey=NetworkInterfaceCount,ParameterValue=32 \
+    ParameterKey=MultiNicMaxCount,ParameterValue=16 \
+  --capabilities CAPABILITY_IAM
+```
+
+### Example 4: P5 Cluster with Capacity Block (Multi NIC)
 
 ```bash
 # First, purchase a capacity block and get the reservation ID
 CAPACITY_RESERVATION_ID="cr-0a1b2c3d4e5f6g7h8"
 
 aws cloudformation create-stack \
-  --stack-name p5-training-cluster \
+  --stack-name p5-capacity-block-cluster \
   --template-url https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml \
   --parameters \
     ParameterKey=PrimarySubnetAZ,ParameterValue=us-east-1a \
-    ParameterKey=DeployCapacityBlockCNG,ParameterValue=true \
-    ParameterKey=CapacityReservationId,ParameterValue=${CAPACITY_RESERVATION_ID} \
-    ParameterKey=CapacityBlockInstanceType,ParameterValue=p5.48xlarge \
+    ParameterKey=DeployMultiNicCNG,ParameterValue=true \
+    ParameterKey=MultiNicCngName,ParameterValue=p5-cb \
+    ParameterKey=MultiNicQueueName,ParameterValue=p5 \
+    ParameterKey=MultiNicInstanceType,ParameterValue=p5.48xlarge \
     ParameterKey=NetworkInterfaceCount,ParameterValue=32 \
-    ParameterKey=CapacityBlockMaxCount,ParameterValue=32 \
+    ParameterKey=MultiNicMaxCount,ParameterValue=32 \
+    ParameterKey=CapacityReservationId,ParameterValue=${CAPACITY_RESERVATION_ID} \
   --capabilities CAPABILITY_IAM
 ```
 
-### Example 4: Multi-Queue Cluster (CPU + GPU + P5)
+### Example 5: P6-B200 Cluster (Multi NIC)
+
+```bash
+aws cloudformation create-stack \
+  --stack-name p6-b200-cluster \
+  --template-url https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml \
+  --parameters \
+    ParameterKey=PrimarySubnetAZ,ParameterValue=us-east-1a \
+    ParameterKey=DeployMultiNicCNG,ParameterValue=true \
+    ParameterKey=MultiNicCngName,ParameterValue=p6-b200 \
+    ParameterKey=MultiNicQueueName,ParameterValue=p6 \
+    ParameterKey=MultiNicInstanceType,ParameterValue=p6-b200.48xlarge \
+    ParameterKey=NetworkInterfaceCount,ParameterValue=32 \
+    ParameterKey=MultiNicMaxCount,ParameterValue=16 \
+  --capabilities CAPABILITY_IAM
+```
+
+### Example 6: Multi-Queue Cluster (CPU + G5 + P5)
 
 ```bash
 aws cloudformation create-stack \
@@ -216,10 +265,10 @@ aws cloudformation create-stack \
     ParameterKey=DeployOnDemandCNG,ParameterValue=true \
     ParameterKey=OnDemandCngName,ParameterValue=gpu-g5 \
     ParameterKey=OnDemandInstanceType,ParameterValue=g5.48xlarge \
-    ParameterKey=DeployCapacityBlockCNG,ParameterValue=true \
-    ParameterKey=CapacityReservationId,ParameterValue=cr-xxxxx \
-    ParameterKey=CapacityBlockCngName,ParameterValue=gpu-p5 \
-    ParameterKey=CapacityBlockInstanceType,ParameterValue=p5.48xlarge \
+    ParameterKey=DeployMultiNicCNG,ParameterValue=true \
+    ParameterKey=MultiNicCngName,ParameterValue=gpu-p5 \
+    ParameterKey=MultiNicInstanceType,ParameterValue=p5.48xlarge \
+    ParameterKey=NetworkInterfaceCount,ParameterValue=32 \
   --capabilities CAPABILITY_IAM
 ```
 
