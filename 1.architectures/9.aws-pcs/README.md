@@ -364,6 +364,10 @@ The monitoring stack includes pre-configured dashboards for:
 For more details about the monitoring stack, see:
 - [AWS ParallelCluster Monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) - Upstream repository with detailed documentation
 
+### Known Limitations
+
+- **Ubuntu 24.04 compatibility**: The upstream monitoring installer expects `ec2-user` but Ubuntu uses `ubuntu`. Our templates include a workaround (symlink `/home/ec2-user` → `/home/ubuntu`) to ensure compatibility.
+
 ---
 
 ## User Management and Observability

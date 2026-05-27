@@ -221,6 +221,12 @@ Resources:
             - |
               if [ "${DeployMonitoring}" == "true" ]; then
                 echo "Installing monitoring stack..."
+                # Workaround: Create symlink for Ubuntu compatibility
+                # aws-parallelcluster-monitoring expects ec2-user but Ubuntu uses ubuntu
+                if [ -d /home/ubuntu ] && [ ! -d /home/ec2-user ]; then
+                  ln -s /home/ubuntu /home/ec2-user
+                  echo "Created symlink: /home/ec2-user -> /home/ubuntu"
+                fi
                 curl -fsSL https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-monitoring/main/post-install.sh -o /tmp/post-install.sh
                 bash /tmp/post-install.sh ${MonitoringVersion} 2>&1 | tee /var/log/monitoring-install.log
                 echo "Monitoring installation complete"
