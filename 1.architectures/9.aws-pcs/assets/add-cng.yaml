@@ -205,7 +205,16 @@ Resources:
                   echo "Created ec2-user pointing to /home/ubuntu"
                 fi
                 curl -fsSL https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-monitoring/main/post-install.sh -o /tmp/post-install.sh
-                bash /tmp/post-install.sh ${MonitoringVersion} 2>&1 | tee /var/log/monitoring-install.log
+                # Run post-install.sh but with bug fix applied immediately after tarball extraction
+                # Modified version that fixes upstream bug: local variable outside function at line 83
+                bash /tmp/post-install.sh ${MonitoringVersion} 2>&1 | tee /tmp/monitoring-install-step1.log || true
+                # If installation failed due to the bug, fix it and retry
+                if [ -f /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh ]; then
+                  # Fix upstream bug: replace "local login_id" with "login_id=" anywhere in the file
+                  # This is more robust than line number since file may change
+                  sed -i 's/^\([[:space:]]*\)local login_id$/\1login_id=/g' /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh
+                  bash /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh 2>&1 | tee /var/log/monitoring-install.log
+                fi
                 echo "Monitoring installation complete"
               fi
 
