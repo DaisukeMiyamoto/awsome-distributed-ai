@@ -31,6 +31,12 @@ Metadata:
           - FSxLustreFilesystemId
           - FSxLustreFilesystemMountName
           - FSxOpenZFSFilesystemId
+      - Label:
+          default: Monitoring configuration
+        Parameters:
+          - DeployMonitoring
+          - MonitoringVersion
+          - MonitoringRole
 
 Parameters:
   CapacityReservationId:
@@ -102,6 +108,28 @@ Parameters:
     Type: String
     Description: Filesystem ID for FSx for OpenZFS
 
+  DeployMonitoring:
+    Type: String
+    Description: Deploy monitoring stack (Prometheus/Grafana on Login Node, DCGM exporter on Compute Node with GPU)
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  MonitoringVersion:
+    Type: String
+    Description: Monitoring stack version (git tag or 'latest')
+    Default: 'latest'
+
+  MonitoringRole:
+    Type: String
+    Description: Monitoring role for this node (login=head node with Prometheus/Grafana, compute=compute node with exporters, none=no monitoring)
+    Default: 'none'
+    AllowedValues:
+      - 'login'
+      - 'compute'
+      - 'none'
+
 Conditions:
   Use32Interfaces:
     Fn::Equals:
@@ -110,6 +138,7 @@ Conditions:
   UseCapacityBlock: !Not [!Equals [!Ref CapacityReservationId, ""]]
   UseOnDemand: !Equals [!Ref CapacityReservationId, ""]
   CreateQueue: !Not [!Equals [!Ref QueueName, ""]]
+  IsMonitoringLogin: !Equals [!Ref MonitoringRole, 'login']
 
 Resources:
 
@@ -178,10 +207,21 @@ Resources:
                 Value: !Sub 'PCS-${CngName}'
               - Key: ClusterName
                 Value: !Ref ClusterId
+              - !If
+                - IsMonitoringLogin
+                - Key: monitoring-role
+                  Value: !Ref MonitoringRole
+                - !Ref AWS::NoValue
+              - !If
+                - IsMonitoringLogin
+                - Key: pcs-cluster-id
+                  Value: !Ref ClusterId
+                - !Ref AWS::NoValue
         MetadataOptions:
           HttpEndpoint: enabled
           HttpPutResponseHopLimit: 4
           HttpTokens: required
+          InstanceMetadataTags: enabled
         UserData:
           Fn::Base64: !Sub |
             MIME-Version: 1.0
@@ -196,11 +236,35 @@ Resources:
             - rsync -aA /home/ /tmp/home
             - echo "${FSxOpenZFSFilesystemId}.fsx.${AWS::Region}.amazonaws.com:/fsx/ /home nfs noatime,nfsvers=3,sync,nconnect=16,rsize=1048576,wsize=1048576,defaults 0 0" >> /etc/fstab
             - mount -a -t nfs defaults
-            - if [ "enabled" == "$(sestatus | awk '/^SELinux status:/{print $3}')" ]; then setsebool -P use_nfs_home_dirs 1; fi
+            - if [ "enabled" = "$(sestatus | awk '/^SELinux status:/{print $3}')" ]; then setsebool -P use_nfs_home_dirs 1; fi
             - rsync -aA --ignore-existing /tmp/home/ /home
             - rm -rf /tmp/home/
             # If provided, mount FSxL filesystem as /fsx
             - if [ ! -z "${FSxLustreFilesystemId}" ]; then mkdir -p /fsx; mount -t lustre ${FSxLustreFilesystemId}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxLustreFilesystemMountName} /fsx; chmod 1777 /fsx; fi
+            # Monitoring stack installation (optional, enabled on Login Node only)
+            - |
+              if [ "${DeployMonitoring}" = "true" ]; then
+                echo "Installing monitoring stack..."
+                # Workaround: Create ec2-user for Ubuntu compatibility
+                # aws-parallelcluster-monitoring expects ec2-user but Ubuntu uses ubuntu
+                if [ -d /home/ubuntu ] && ! id ec2-user >/dev/null 2>&1; then
+                  useradd -m -s /bin/bash -d /home/ubuntu ec2-user
+                  usermod -aG docker ec2-user 2>/dev/null || true
+                  echo "Created ec2-user pointing to /home/ubuntu"
+                fi
+                curl -fsSL https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-monitoring/main/post-install.sh -o /tmp/post-install.sh
+                # Run post-install.sh but with bug fix applied immediately after tarball extraction
+                # Modified version that fixes upstream bug: local variable outside function at line 83
+                bash /tmp/post-install.sh ${MonitoringVersion} 2>&1 | tee /tmp/monitoring-install-step1.log || true
+                # If installation failed due to the bug, fix it and retry
+                if [ -f /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh ]; then
+                  # Fix upstream bug: replace "local login_id" with "login_id=" anywhere in the file
+                  # This is more robust than line number since file may change
+                  sed -i 's/^\([[:space:]]*\)local login_id$/\1login_id=/g' /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh
+                  bash /home/ec2-user/aws-parallelcluster-monitoring/installer/install.sh 2>&1 | tee /var/log/monitoring-install.log
+                fi
+                echo "Monitoring installation complete"
+              fi
 
             --==MYBOUNDARY==
         NetworkInterfaces:
