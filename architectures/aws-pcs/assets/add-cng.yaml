@@ -200,7 +200,7 @@ Resources:
             - |
               if [ "${InstallEnrootPyxis}" = "true" ]; then
                 echo "Downloading Enroot/Pyxis installation script..." | tee /var/log/enroot-pyxis-install.log
-                curl -fsSL https://midaisuk-llm-dev.s3.amazonaws.com/scripts/install-enroot-pyxis.sh -o /tmp/install-enroot-pyxis.sh
+                curl -fsSL https://raw.githubusercontent.com/DaisukeMiyamoto/awsome-distributed-ai/deploy-monitoring/architectures/aws-pcs/scripts/install-enroot-pyxis.sh -o /tmp/install-enroot-pyxis.sh
                 chmod +x /tmp/install-enroot-pyxis.sh
                 echo "Executing Enroot/Pyxis installation script..." | tee -a /var/log/enroot-pyxis-install.log
                 bash /tmp/install-enroot-pyxis.sh >> /var/log/enroot-pyxis-install.log 2>&1
