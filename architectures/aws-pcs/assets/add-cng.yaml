@@ -68,7 +68,6 @@ Parameters:
       headroom.
     Default: 300
     MinValue: 75
-    MinValue: 75
 
   MaxCount:
     Type: Number
