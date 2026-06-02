@@ -60,7 +60,7 @@ Parameters:
   CngName:
     Type: String
     Description: Name for Compute Node Group
-    Default: "gpu-p5"
+    Default: "gpu-p6-b300"
 
   QueueName:
     Type: String
