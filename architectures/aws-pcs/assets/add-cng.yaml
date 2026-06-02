@@ -178,7 +178,10 @@ Resources:
       IamInstanceProfileArn: !Ref IamProfileArn
       CustomLaunchTemplate:
         TemplateId: !Ref PCSLaunchTemplate
-        Version: 1
+        # Track the latest launch template version so template updates (e.g. NIC
+        # or UserData changes) actually reach the node group. Hardcoding Version: 1
+        # pins the node group to the original version and silently ignores updates.
+        Version: !GetAtt PCSLaunchTemplate.LatestVersionNumber
       SubnetIds:
         - !Ref SubnetId
       AmiId: !Ref AmiId
