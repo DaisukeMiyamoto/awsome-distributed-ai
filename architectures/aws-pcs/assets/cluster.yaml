@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: MIT-0
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS PCS "Getting Started" cluster. 
-  This template deploys a small HPC cluster with 1 login node and up to 4 compute nodes. Optionally, Slurm accounting can be enabled.
-  It includes an EFS file system for shared storage and an FSx for Lustre file system for high-speed temporary storage.  
-  The cluster is deployed in a new VPC with both public and private subnets.  
-  It can be accessed via the browser using AWS Systems Manager Session Manager or over the internet via SSH.  
-  To access the cluster, check the Outputs tab of this stack for relevant links.  
+Description: >
+  AWS PCS cluster core (Slurm scheduler only — no compute nodes). Creates the PCS
+  cluster, its IAM role/instance profile, and (optionally) the monitoring IAM policy
+  and Slurm accounting. It attaches to an existing private subnet and security group
+  (from the prerequisites stack); add login/compute nodes separately with add-cng*.yaml.
+  Optionally enables Slurm OpenMetrics for the monitoring stack via DeployMonitoring.
 
 ### Stack metadata
 Metadata:

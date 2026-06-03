@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: MIT-0
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Adding Compute Node Group to PCS Cluster
+Description: >
+  Add a single-network-interface Compute Node Group to a PCS cluster — login nodes,
+  CPU queues, or single-NIC GPU queues (e.g. C6i, G5, G6). Mounts the shared FSx
+  filesystems, optionally installs Enroot/Pyxis (PostInstallScriptUrl) and the
+  monitoring exporters (DeployMonitoring/MonitoringRole). A Slurm queue is created
+  only when QueueName is set (leave empty for login nodes).
 
 Metadata:
   AWS::CloudFormation::Interface:

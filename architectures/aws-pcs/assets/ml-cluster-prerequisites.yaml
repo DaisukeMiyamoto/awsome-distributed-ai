@@ -3,14 +3,13 @@
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  This CloudFormation stack creates all the necessary pre-requisites for ML Cluster,
-  these include VPC and two Subnets, a security group and FSx Lustre Filesystem.
-  A public subnet and a private subnet are created in an Availability Zone that you provide as a parameter.
-  As part of the template you'll deploy an Internet Gateway and NAT Gateway in
-  the public subnet. In addition you deploy endpoints for Amazon S3. The VPC contains 2 CIDR blocks with 10.0.0.0/16 and 10.1.0.0/16
-  The first CIDR is used for the public subnet, the second is used for the private.
-  The template creates an fsx lustre volume in the specified AZ with a default of
-  1.2 TB storage which can be overridden by parameter.
+  Network and storage prerequisites for an ML PCS cluster: a VPC with one public and
+  one private subnet, a security group, an FSx for Lustre filesystem (high-speed
+  shared scratch, /fsx), and an FSx for OpenZFS filesystem (home directories, /home).
+  A public and a private subnet are created in the Availability Zone you provide. It
+  also deploys an Internet Gateway, a NAT Gateway in the public subnet, and an Amazon
+  S3 VPC endpoint. The VPC has two CIDR blocks (10.0.0.0/16 public, 10.1.0.0/16
+  private). FSx Lustre defaults to 1.2 TB; deployment types/throughput are parameters.
 
 
 ####################
