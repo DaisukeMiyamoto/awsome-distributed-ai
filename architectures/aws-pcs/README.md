@@ -98,10 +98,16 @@ choices that need the most thought.
 
 ### Container runtime (Enroot/Pyxis)
 
-Two independent, combinable options:
+Choose **one** of two ways to provide Enroot/Pyxis:
 
 - **First-boot install (default)**: `PostInstallScriptUrl` runs [`scripts/install-enroot-pyxis.sh`](./scripts/install-enroot-pyxis.sh) on each node — no AMI build, ~8–12 min node boot. Best for testing/infrequent scaling.
 - **Pre-baked AMI** (`BuildAMI=true`): `pcs-ready-dlami-with-enroot-pyxis.yaml` bakes Enroot 3.5.0 + Pyxis 0.20.0 into a custom DLAMI (~30 min build, ~3 min node boot). Best for production/frequent scaling.
+
+> **Don't do both.** `PostInstallScriptUrl` defaults to the Enroot/Pyxis installer, so if
+> you set `BuildAMI=true` **also pass `PostInstallScriptUrl=""`** — otherwise each node
+> both boots the pre-baked AMI *and* re-runs the installer at first boot (wasted time and
+> a possible conflict). With `BuildAMI=false` (default), leave `PostInstallScriptUrl` at
+> its default.
 
 The PCS-ready DLAMI base already includes the PCS agent, Slurm 25.05 & 25.11
 (`/opt/aws/pcs/scheduler/slurm-*`), NVIDIA driver + CUDA, and SSM agent.
