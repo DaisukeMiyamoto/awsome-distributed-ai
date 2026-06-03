@@ -7,7 +7,7 @@ sections shown in the CloudFormation console (the console also shows friendly la
 so a default deploy only needs the Availability Zone (`PrimarySubnetAZ`).
 
 For conceptual guidance (GPU instance/EFA selection, FSx Region availability, container
-runtime options), see the [README](./README.md#configuration).
+runtime options), see the [README](./README.md#4-configuration).
 
 ## 1. Network Configuration
 

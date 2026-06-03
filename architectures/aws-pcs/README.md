@@ -4,7 +4,7 @@ This repository provides reference architectures and deployment templates for se
 
 > **Upstream Repository**: These templates are based on [aws-samples/aws-hpc-recipes](https://github.com/aws-samples/aws-hpc-recipes/tree/main/recipes/pcs), customized for ML workloads: container support (Enroot/Pyxis) installable at first boot without an AMI build, built-in monitoring, updated Slurm versions (25.05/25.11), and dedicated P5/P6 multi-NIC EFA templates. The templates in this repository are maintained independently and may diverge from the upstream recipes.
 
-## Key Features
+## 1. Key Features
 
 - **One click to an ML-training-ready cluster**: a single CloudFormation stack gives you a complete, ready-to-train environment — Slurm scheduler, GPU compute with EFA, shared FSx storage, the Enroot/Pyxis container runtime, and monitoring — with only the Availability Zone to choose. Submit distributed training jobs minutes after launch.
 - **Container runtime included**: Enroot/Pyxis is set up automatically, so `srun --container-image=...` works out of the box for containerized training.
@@ -19,7 +19,7 @@ This repository provides reference architectures and deployment templates for se
 > the cluster comes up without an Image Builder step. (Pre-baking Enroot/Pyxis into a
 > custom AMI is still available via `BuildAMI=true` for faster node boot at scale.)
 
-## Architecture
+## 2. Architecture
 
 ![AWS PCS diagram](./images/ml-pcs-architecture.png)
 
@@ -33,7 +33,7 @@ A default deployment (`pcs-ml-cluster-deploy-all.yaml`) provisions:
 
 ---
 
-## Quick Start
+## 3. Quick Start
 
 Deploy a complete cluster with one nested CloudFormation stack:
 
@@ -58,14 +58,14 @@ a `cpu1` queue (c6i.4xlarge, 0–4 nodes, dynamic scaling), and Enroot/Pyxis on 
 Add a GPU queue and tune storage/monitoring via the parameters below.
 
 Once it's up:
-- **Connect** to the login node via SSM Session Manager — see [Accessing the Cluster](#accessing-the-cluster).
+- **Connect** to the login node via SSM Session Manager — see [Accessing the Cluster](#6-accessing-the-cluster).
 - **Open the Grafana dashboards** (deployed by default) via SSM port forwarding — see [Accessing Grafana](#accessing-grafana).
 
 Prefer step-by-step instructions? See the [AI/ML for AWS PCS Workshop](https://catalog.workshops.aws/ml-on-pcs/).
 
 ---
 
-## Configuration
+## 4. Configuration
 
 Defaults give the most common production setup — `BuildAMI=false` + Enroot/Pyxis via
 `PostInstallScriptUrl` + `DeployMonitoring=true` — so a default deploy only needs the
@@ -95,23 +95,6 @@ Two independent, combinable options:
 The PCS-ready DLAMI base already includes the PCS agent, Slurm 25.05 & 25.11
 (`/opt/aws/pcs/scheduler/slurm-*`), NVIDIA driver + CUDA, and SSM agent.
 
-### Storage: FSx deployment types (Region availability)
-
-**FSx deployment types are not available in every Region.** Defaults match the most
-capable type; switch to a more widely available one if your Region needs it.
-
-| Filesystem | Parameter | Default | Other values | Notes |
-|---|---|---|---|---|
-| Lustre (`/fsx`) | `LustreDeploymentType` | `PERSISTENT_2` | `PERSISTENT_1` | `PERSISTENT_2` (throughput 125/250/500/1000, metadata config) isn't in every Region; `PERSISTENT_1` (50/100/200) is in more Regions |
-| Lustre (`/fsx`) | `PerUnitStorageThroughput` | `250` | any valid number | Must be valid for the type: P2 = 125/250/500/1000, P1 = 50/100/200 |
-| OpenZFS (`/home`) | `OpenZFSDeploymentType` | `SINGLE_AZ_HA_2` | `SINGLE_AZ_HA_1`, `SINGLE_AZ_2`, `SINGLE_AZ_1` | `SINGLE_AZ_1` is in all Regions; HA/2 variants vary. `MULTI_AZ` excluded (needs a second subnet) |
-
-Check support before deploying:
-[Lustre Regions](https://docs.aws.amazon.com/fsx/latest/LustreGuide/using-fsx-lustre.html) ·
-[OpenZFS Regions](https://docs.aws.amazon.com/fsx/latest/OpenZFSGuide/available-aws-regions.html).
-If a deploy fails at the FSx resource with an "unsupported deployment type" error,
-switch these parameters to a type your Region supports.
-
 ### GPU compute (P5/P6)
 
 Different P-series instances expose different numbers of EFA interfaces, so each family
@@ -137,33 +120,26 @@ automatically.
 > group at `PseriesMinCount = PseriesMaxCount = <reserved count>` so the reserved
 > nodes launch immediately, rather than scaling from 0.
 
----
+### Storage: FSx deployment types (Region availability)
 
-## Templates
+**FSx deployment types are not available in every Region.** Defaults match the most
+capable type; switch to a more widely available one if your Region needs it.
 
-All templates live in [`assets/`](./assets/). `pcs-ml-cluster-deploy-all.yaml` nests
-the others; you can also deploy each individually for more control (e.g. reuse a VPC/FSx
-across clusters). Click **Deploy** to 1-click-launch a single template. For every
-parameter and default, see [PARAMETERS.md](./PARAMETERS.md).
+| Filesystem | Parameter | Default | Other values | Notes |
+|---|---|---|---|---|
+| Lustre (`/fsx`) | `LustreDeploymentType` | `PERSISTENT_2` | `PERSISTENT_1` | `PERSISTENT_2` (throughput 125/250/500/1000, metadata config) isn't in every Region; `PERSISTENT_1` (50/100/200) is in more Regions |
+| Lustre (`/fsx`) | `PerUnitStorageThroughput` | `250` | any valid number | Must be valid for the type: P2 = 125/250/500/1000, P1 = 50/100/200 |
+| OpenZFS (`/home`) | `OpenZFSDeploymentType` | `SINGLE_AZ_HA_2` | `SINGLE_AZ_HA_1`, `SINGLE_AZ_2`, `SINGLE_AZ_1` | `SINGLE_AZ_1` is in all Regions; HA/2 variants vary. `MULTI_AZ` excluded (needs a second subnet) |
 
-| Template | Purpose | Deploy |
-|---|---|---|
-| [`pcs-ml-cluster-deploy-all.yaml`](./assets/pcs-ml-cluster-deploy-all.yaml) | All-in-one: Prerequisites + (optional AMI) + Cluster + login/CPU/GPU CNGs | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml&stackName=pcs-ml-cluster) |
-| [`ml-cluster-prerequisites.yaml`](./assets/ml-cluster-prerequisites.yaml) | VPC, subnets, security groups, FSx for Lustre + OpenZFS | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/ml-cluster-prerequisites.yaml&stackName=pcs-prerequisites) |
-| [`cluster.yaml`](./assets/cluster.yaml) | PCS cluster core (Slurm scheduler only, no nodes) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/cluster.yaml&stackName=pcs-cluster) |
-| [`add-cng.yaml`](./assets/add-cng.yaml) | Compute node group, single NIC — login nodes, CPU/single-NIC-GPU queues (C6i, G5, G6) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) |
-| [`add-cng-p5.yaml`](./assets/add-cng-p5.yaml) | P5/P5e/P5en nodes (16/32 EFA interfaces, by type) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p5.yaml&stackName=pcs-add-cng-p5) |
-| [`add-cng-p6-b200.yaml`](./assets/add-cng-p6-b200.yaml) | P6-B200 nodes (8 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b200.yaml&stackName=pcs-add-cng-p6-b200) |
-| [`add-cng-p6-b300.yaml`](./assets/add-cng-p6-b300.yaml) | P6-B300 nodes (16 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b300.yaml&stackName=pcs-add-cng-p6-b300) |
-| [`pcs-ready-dlami-with-enroot-pyxis.yaml`](./assets/pcs-ready-dlami-with-enroot-pyxis.yaml) | EC2 Image Builder: bake Enroot 3.5.0 + Pyxis 0.20.0 into the PCS-ready DLAMI | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ready-dlami-with-enroot-pyxis.yaml&stackName=pcs-dlami) |
-
-`add-cng*` templates create a Slurm queue only when `QueueName` is set (leave it empty
-for login nodes). The P-series templates need a `CapacityReservationId` when using a
-Capacity Block.
+Check support before deploying:
+[Lustre Regions](https://docs.aws.amazon.com/fsx/latest/LustreGuide/using-fsx-lustre.html) ·
+[OpenZFS Regions](https://docs.aws.amazon.com/fsx/latest/OpenZFSGuide/available-aws-regions.html).
+If a deploy fails at the FSx resource with an "unsupported deployment type" error,
+switch these parameters to a type your Region supports.
 
 ---
 
-## Usage Examples
+## 5. Usage Examples
 
 All examples start by setting `AZ_ID` — the one required choice.
 
@@ -226,7 +202,7 @@ On-Demand or an "open" ODCR, leave it empty (see [GPU compute](#gpu-compute-p5p6
 
 ---
 
-## Accessing the Cluster
+## 6. Accessing the Cluster
 
 Connect to the login node with AWS Systems Manager Session Manager (no public SSH needed).
 
@@ -258,7 +234,7 @@ See [Connect to Cluster](https://catalog.workshops.aws/ml-on-pcs/en-US/03-cluste
 
 ---
 
-## Running a multi-node GPU job (NCCL test)
+## 7. Running a multi-node GPU job (NCCL test)
 
 A quick way to confirm the GPU queue, Pyxis containers, and EFA all work end-to-end is
 the [NCCL tests](https://github.com/NVIDIA/nccl-tests) `all_reduce_perf` benchmark across
@@ -305,7 +281,7 @@ For a full training example (FSDP), see the
 
 ---
 
-## Monitoring
+## 8. Monitoring
 
 With `DeployMonitoring=true` (default), an integrated monitoring stack based on
 [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring)
@@ -372,7 +348,7 @@ For detailed validation, the full metric list, and troubleshooting, see
 
 ---
 
-## Cleanup
+## 9. Cleanup
 
 ```bash
 aws cloudformation delete-stack --stack-name pcs-ml-cluster
@@ -383,7 +359,31 @@ are deleted with the stack.
 
 ---
 
-## Testing and Validation
+## 10. Templates
+
+All templates live in [`assets/`](./assets/). `pcs-ml-cluster-deploy-all.yaml` nests
+the others; you can also deploy each individually for more control (e.g. reuse a VPC/FSx
+across clusters). Click **Deploy** to 1-click-launch a single template. For every
+parameter and default, see [PARAMETERS.md](./PARAMETERS.md).
+
+| Template | Purpose | Deploy |
+|---|---|---|
+| [`pcs-ml-cluster-deploy-all.yaml`](./assets/pcs-ml-cluster-deploy-all.yaml) | All-in-one: Prerequisites + (optional AMI) + Cluster + login/CPU/GPU CNGs | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml&stackName=pcs-ml-cluster) |
+| [`ml-cluster-prerequisites.yaml`](./assets/ml-cluster-prerequisites.yaml) | VPC, subnets, security groups, FSx for Lustre + OpenZFS | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/ml-cluster-prerequisites.yaml&stackName=pcs-prerequisites) |
+| [`cluster.yaml`](./assets/cluster.yaml) | PCS cluster core (Slurm scheduler only, no nodes) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/cluster.yaml&stackName=pcs-cluster) |
+| [`add-cng.yaml`](./assets/add-cng.yaml) | Compute node group, single NIC — login nodes, CPU/single-NIC-GPU queues (C6i, G5, G6) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) |
+| [`add-cng-p5.yaml`](./assets/add-cng-p5.yaml) | P5/P5e/P5en nodes (16/32 EFA interfaces, by type) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p5.yaml&stackName=pcs-add-cng-p5) |
+| [`add-cng-p6-b200.yaml`](./assets/add-cng-p6-b200.yaml) | P6-B200 nodes (8 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b200.yaml&stackName=pcs-add-cng-p6-b200) |
+| [`add-cng-p6-b300.yaml`](./assets/add-cng-p6-b300.yaml) | P6-B300 nodes (16 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b300.yaml&stackName=pcs-add-cng-p6-b300) |
+| [`pcs-ready-dlami-with-enroot-pyxis.yaml`](./assets/pcs-ready-dlami-with-enroot-pyxis.yaml) | EC2 Image Builder: bake Enroot 3.5.0 + Pyxis 0.20.0 into the PCS-ready DLAMI | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ready-dlami-with-enroot-pyxis.yaml&stackName=pcs-dlami) |
+
+`add-cng*` templates create a Slurm queue only when `QueueName` is set (leave it empty
+for login nodes). The P-series templates need a `CapacityReservationId` when using a
+Capacity Block.
+
+---
+
+## 11. Testing and Validation
 
 Validated configurations:
 
@@ -397,11 +397,11 @@ Validated configurations:
 
 ---
 
-## User Management
+## 12. User Management
 
 - [LDAP Server Setup Guide](../6.ldap_server/README.md) — OpenLDAP for cluster-wide user authentication.
 
-## Additional Resources
+## 13. Additional Resources
 
 - [AWS Parallel Computing Service Documentation](https://docs.aws.amazon.com/pcs/)
 - [AI/ML for AWS PCS Workshop](https://catalog.workshops.aws/ml-on-pcs/)
