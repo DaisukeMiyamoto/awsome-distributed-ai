@@ -67,71 +67,23 @@ Prefer step-by-step instructions? See the [AI/ML for AWS PCS Workshop](https://c
 
 ## Configuration
 
-`pcs-ml-cluster-deploy-all.yaml` parameters, grouped to match the sections shown in the
-CloudFormation console. Defaults give the most common production setup —
-`BuildAMI=false` + Enroot/Pyxis via `PostInstallScriptUrl` + `DeployMonitoring=true` —
-so a default deploy only needs the Availability Zone.
-
-**1. Network Configuration**
+Defaults give the most common production setup — `BuildAMI=false` + Enroot/Pyxis via
+`PostInstallScriptUrl` + `DeployMonitoring=true` — so a default deploy only needs the
+Availability Zone (`PrimarySubnetAZ`). The most-used parameters:
 
 | Parameter | Default | Purpose |
 |---|---|---|
 | `PrimarySubnetAZ` | *(required)* | Availability Zone to deploy into — the one required parameter |
-| `VPCName` | `ML-Cluster-VPC` | Name for the created VPC |
-| `CreateS3Endpoint` | `true` | Create an S3 VPC endpoint |
-
-**2. PCS Cluster Configuration**
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `LoginNodeInstanceType` | `m6i.4xlarge` | Login node instance type |
-| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`) |
+| `BuildAMI` | `false` | Pre-bake Enroot/Pyxis into a custom DLAMI instead of installing at first boot |
 | `DeployMonitoring` | `true` | Deploy Prometheus/Grafana/DCGM on the login node |
-| `ManagedAccounting` / `AccountingPolicyEnforcement` | `disabled` / `none` | Optional Slurm accounting + policy enforcement |
+| `DeployOnDemandCNG` | `true` | Deploy the `cpu1` CPU queue (`OnDemandInstanceType`, default `c6i.4xlarge`) |
+| `DeployPseriesCNG` | `false` | Deploy a GPU (P5/P6) queue — see [GPU compute](#gpu-compute-p5p6) |
+| `PseriesInstanceType` | `p5.48xlarge` | GPU instance type; auto-selects the multi-NIC template + EFA count |
+| `CapacityReservationId` | *(empty)* | Capacity **Block** ID for the GPU queue; empty for On-Demand/ODCR |
 
-**3. Custom AMI / Post-install Script (container support)**
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `BuildAMI` | `false` | Pre-bake Enroot/Pyxis into a custom DLAMI (adds ~30 min Image Builder step) instead of installing at first boot |
-| `PostInstallScriptUrl` | Enroot/Pyxis installer | Script run on every node at first boot (PCS equivalent of ParallelCluster `OnNodeConfigured`). Empty = skip; or override with any HTTP(S) script |
-| `PostInstallScriptArgs` | *(empty)* | Arguments passed to the post-install script |
-| `BaseAmiId` / `SemanticVersion` / `BuildSchedule` | auto / `1.0.0` / `Manual` | Custom-AMI build settings (only used when `BuildAMI=true`) |
-| `RootVolumeSize` | `300` | Node root volume (GiB); 300 leaves room for large container images |
-
-**4. On-Demand Compute Node Group (CPU)**
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `DeployOnDemandCNG` | `true` | Deploy the CPU queue |
-| `OnDemandInstanceType` | `c6i.4xlarge` | CPU queue instance type |
-| `OnDemandMinCount` / `OnDemandMaxCount` | `0` / `4` | CPU queue scaling bounds |
-| `OnDemandCngName` / `OnDemandQueueName` | `cpu1` / `cpu1` | CPU node-group / queue name |
-
-**5. GPU Compute Node Group — P5/P6 (Optional)** — see [GPU compute](#gpu-compute-p5p6)
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `DeployPseriesCNG` | `false` | Deploy a GPU (P5/P6) queue |
-| `PseriesInstanceType` | `p5.48xlarge` | GPU instance type; selects the matching multi-NIC template and EFA count automatically |
-| `PseriesMinCount` / `PseriesMaxCount` | `0` / `4` | GPU queue scaling bounds |
-| `CapacityReservationId` | *(empty)* | Capacity **Block** reservation ID (sets `MarketType=capacity-block`). Leave empty for On-Demand / ODCR |
-| `PseriesCngName` / `PseriesQueueName` | `gpu-p5` / `gpu-p5` | GPU node-group / queue name |
-
-**6. FSx Storage Configuration (Advanced)** — see [Storage](#storage-fsx-deployment-types-region-availability)
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `Capacity` / `PerUnitStorageThroughput` | `1200` / `250` | Lustre capacity (GiB) / throughput (MB/s/TiB) |
-| `LustreDeploymentType` / `LustreVersion` / `Compression` | `PERSISTENT_2` / `2.15` / `LZ4` | Lustre deployment type, version, compression |
-| `HomeCapacity` / `HomeThroughput` / `OpenZFSDeploymentType` | `512` / `320` / `SINGLE_AZ_HA_2` | OpenZFS (`/home`) capacity, throughput, deployment type |
-
-**7. Developer / Advanced**
-
-| Parameter | Default | Purpose |
-|---|---|---|
-| `S3BucketName` / `S3KeyPrefix` | `awsome-distributed-ai` / `templates/` | Where the nested templates are fetched from |
-| `MonitoringRepo` / `MonitoringVersion` | `aws-samples/aws-parallelcluster-monitoring` / `v2.6.5` | Monitoring stack source (override with a fork + branch to test unreleased changes) |
+**See [PARAMETERS.md](./PARAMETERS.md) for the complete parameter reference** (all 7
+console parameter groups, with every default). The concept guides below cover the
+choices that need the most thought.
 
 ### Container runtime (Enroot/Pyxis)
 
@@ -191,7 +143,8 @@ automatically.
 
 All templates live in [`assets/`](./assets/). `pcs-ml-cluster-deploy-all.yaml` nests
 the others; you can also deploy each individually for more control (e.g. reuse a VPC/FSx
-across clusters). Click **Deploy** to 1-click-launch a single template.
+across clusters). Click **Deploy** to 1-click-launch a single template. For every
+parameter and default, see [PARAMETERS.md](./PARAMETERS.md).
 
 | Template | Purpose | Deploy |
 |---|---|---|
