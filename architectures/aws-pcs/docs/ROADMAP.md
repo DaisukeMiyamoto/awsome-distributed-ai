@@ -15,6 +15,14 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
 - [ ] 🟢 **Trainium (Trn) validation.** Validate the templates on Trainium instances
   (e.g. trn1/trn2) — node group, EFA/networking, and a sample training run.
 
+## User management
+
+- [ ] 🟡 **Integrate a user-management backend (LDAP/AD).** Provide a way to manage cluster
+  users centrally instead of the single `ubuntu` user — e.g. integrate an LDAP/OpenLDAP or
+  AWS Managed Microsoft AD directory (see `architectures/6.ldap_server`) so login/compute
+  nodes authenticate against a shared directory (multi-user clusters, per-user home dirs,
+  Slurm accounting per user).
+
 ## Monitoring
 
 - [ ] 🟡 **AWS-managed monitoring stack option.** Offer Amazon Managed Service for
