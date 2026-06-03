@@ -71,7 +71,7 @@ friendly labels). Defaults give the most common production setup —
 | `DeployOnDemandCNG` | `true` | Deploy the `cpu1` CPU queue (`OnDemandInstanceType`, default `c6i.4xlarge`) |
 | `DeployPseriesCNG` | `false` | Deploy a GPU (P5/P6) queue — see [GPU compute](#gpu-compute-p5p6) |
 | `PseriesInstanceType` | `p5.48xlarge` | GPU instance type; selects the matching multi-NIC template automatically |
-| `CapacityReservationId` | *(empty)* | ODCR / Capacity Block ID for the GPU queue |
+| `CapacityReservationId` | *(empty)* | Capacity **Block** reservation ID for the GPU queue (sets `MarketType=capacity-block`). Leave empty for On-Demand. Not for ODCR — see [GPU compute](#gpu-compute-p5p6) |
 | `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`) |
 | `RootVolumeSize` | `300` | Node root volume (GiB); 300 leaves room for large container images |
 
@@ -117,8 +117,10 @@ uses its own launch-template NIC layout. With deploy-all you just set
 | `p6-b200.48xlarge` | 8× B200 | 8 network cards | `add-cng-p6-b200.yaml` |
 | `p6-b300.48xlarge` | 8× B300 | 17 network cards (16 EFA-capable) | `add-cng-p6-b300.yaml` |
 
-**Capacity:** use On-Demand, ODCR (`CapacityReservationId`), or Capacity Blocks for ML
-(`CapacityReservationId` + `MarketType=capacity-block`, handled by the template).
+**Capacity options:**
+- **On-Demand**: leave `CapacityReservationId` empty.
+- **On-Demand Capacity Reservation (ODCR)**: also leave `CapacityReservationId` **empty** — create the ODCR with **"open"** instance matching and it is consumed automatically by the node group's On-Demand launches. (Do **not** put the ODCR ID in `CapacityReservationId`; that parameter forces Capacity-Block mode.)
+- **Capacity Blocks for ML**: set `CapacityReservationId` to the Capacity Block ID. The template then launches with `MarketType=capacity-block` against it.
 
 > **Capacity Block billing:** a block bills for its whole reserved window once it
 > starts and cannot be stopped early. When the block is active, run the GPU node
@@ -200,10 +202,10 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
 ```
 The `add-cng-p6-b300.yaml` template (17 network cards) is selected automatically from
-`PseriesInstanceType`. For `p6-b200.48xlarge` just change that value; for P5, set
-`PseriesInstanceType=p5.48xlarge` (optionally `NetworkInterfaceCount=16|32`). For an
-ODCR instead of a Capacity Block, pass the reservation as `CapacityReservationId` the
-same way (or omit it for pure on-demand).
+`PseriesInstanceType`, and the EFA interface count is derived from the instance type —
+no NIC-count parameter to set. For `p6-b200.48xlarge` or any P5 type, just change
+`PseriesInstanceType`. `CapacityReservationId` here is the **Capacity Block** ID; for
+On-Demand or an "open" ODCR, leave it empty (see [GPU compute](#gpu-compute-p5p6)).
 
 ---
 

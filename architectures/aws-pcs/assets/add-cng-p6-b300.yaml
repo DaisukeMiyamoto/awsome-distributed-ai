@@ -46,7 +46,12 @@ Metadata:
 Parameters:
   CapacityReservationId:
     Type: String
-    Description: (Optional) Capacity Reservation ID for Capacity Blocks. Leave empty for On-Demand instances.
+    Description: >-
+      (Optional) Capacity Block for ML reservation ID. When SET, the node group
+      launches with MarketType=capacity-block against this reservation. Leave
+      EMPTY for On-Demand. NOTE: this is for Capacity Blocks ONLY — do not put an
+      On-Demand Capacity Reservation (ODCR) ID here. An ODCR with "open" matching
+      is consumed automatically by On-Demand launches, so for ODCR leave this empty.
     Default: ""
 
   ClusterId:

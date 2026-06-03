@@ -17,7 +17,6 @@ Metadata:
           - CngName
           - QueueName
           - InstanceType
-          - NetworkInterfaceCount
           - MaxCount
           - MinCount
       - Label:
@@ -47,7 +46,12 @@ Metadata:
 Parameters:
   CapacityReservationId:
     Type: String
-    Description: (Optional) Capacity Reservation ID for Capacity Blocks. Leave empty for On-Demand instances.
+    Description: >-
+      (Optional) Capacity Block for ML reservation ID. When SET, the node group
+      launches with MarketType=capacity-block against this reservation. Leave
+      EMPTY for On-Demand. NOTE: this is for Capacity Blocks ONLY — do not put an
+      On-Demand Capacity Reservation (ODCR) ID here. An ODCR with "open" matching
+      is consumed automatically by On-Demand launches, so for ODCR leave this empty.
     Default: ""
 
   ClusterId:
@@ -70,16 +74,14 @@ Parameters:
 
   InstanceType:
     Type: String
-    Description: Instance Type for Compute Node Group (e.g., p5.48xlarge, p5e.48xlarge, p5en.48xlarge)
+    Description: >-
+      P5-family instance type. The EFA interface count is derived automatically:
+      p5en.48xlarge = 16 network cards, p5.48xlarge / p5e.48xlarge = 32.
     Default: "p5.48xlarge"
-
-  NetworkInterfaceCount:
-    Type: String
-    Description: Number of network interfaces for P5 instances (16 for p5en.48xlarge, 32 for p5.48xlarge and p5e.48xlarge)
-    Default: "32"
     AllowedValues:
-      - "16"
-      - "32"
+      - p5.48xlarge
+      - p5e.48xlarge
+      - p5en.48xlarge
 
   RootVolumeSize:
     Type: Number
@@ -178,10 +180,10 @@ Parameters:
     Default: ''
 
 Conditions:
-  Use32Interfaces:
-    Fn::Equals:
-      - Ref: NetworkInterfaceCount
-      - "32"
+  # EFA interface count is derived from the instance type: p5en.48xlarge has 16
+  # network cards, p5.48xlarge / p5e.48xlarge have 32. So "use 32 interfaces"
+  # means "not p5en". No separate NetworkInterfaceCount parameter is needed.
+  Use32Interfaces: !Not [!Equals [!Ref InstanceType, "p5en.48xlarge"]]
   UseCapacityBlock: !Not [!Equals [!Ref CapacityReservationId, ""]]
   UseOnDemand: !Equals [!Ref CapacityReservationId, ""]
   CreateQueue: !Not [!Equals [!Ref QueueName, ""]]

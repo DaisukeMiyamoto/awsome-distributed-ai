@@ -52,7 +52,6 @@ Metadata:
           - PseriesInstanceType
           - PseriesMinCount
           - PseriesMaxCount
-          - NetworkInterfaceCount
           - CapacityReservationId
           - PseriesCngName
           - PseriesQueueName
@@ -129,10 +128,8 @@ Metadata:
         default: "GPU queue min nodes"
       PseriesMaxCount:
         default: "GPU queue max nodes"
-      NetworkInterfaceCount:
-        default: "EFA interface count (P5 only)"
       CapacityReservationId:
-        default: "Capacity Reservation ID (ODCR / Capacity Block)"
+        default: "Capacity Block reservation ID (leave empty for On-Demand/ODCR)"
       PseriesCngName:
         default: "GPU node group name"
       PseriesQueueName:
@@ -413,9 +410,9 @@ Parameters:
     Type: String
     Description: >-
       Instance type for the P-series compute node group. The right multi-NIC EFA
-      template is selected automatically from this value: p5* use add-cng-p5.yaml
-      (NetworkInterfaceCount applies), p6-b200.48xlarge uses add-cng-p6-b200.yaml
-      (8 NICs), p6-b300.48xlarge uses add-cng-p6-b300.yaml (17 NICs).
+      template AND interface count are selected automatically from this value:
+      p5* use add-cng-p5.yaml (p5/p5e = 32 NICs, p5en = 16), p6-b200.48xlarge uses
+      add-cng-p6-b200.yaml (8 NICs), p6-b300.48xlarge uses add-cng-p6-b300.yaml (17 NICs).
     Default: "p5.48xlarge"
     AllowedValues:
       - p5.48xlarge
@@ -436,21 +433,15 @@ Parameters:
     Default: 0
     MinValue: 0
 
-  NetworkInterfaceCount:
-    Type: Number
-    Description: >-
-      Number of EFA network interfaces, P5 family only (16 or 32). Ignored for
-      p6-b200 (fixed 8 NICs) and p6-b300 (fixed 17 NICs), whose templates set the
-      count themselves.
-    Default: 32
-    AllowedValues:
-      - 16
-      - 32
-
   CapacityReservationId:
     Type: String
     Default: ""
-    Description: Optional Capacity Reservation ID for P-series instances
+    Description: >-
+      (Optional) Capacity Block for ML reservation ID for the GPU node group. When
+      SET, GPU nodes launch with MarketType=capacity-block against it. Leave EMPTY
+      for On-Demand. This is for Capacity Blocks ONLY — do not put an On-Demand
+      Capacity Reservation (ODCR) ID here; an "open" ODCR is consumed automatically
+      by On-Demand launches, so for ODCR leave this empty.
 
   RootVolumeSize:
     Type: Number
@@ -662,7 +653,6 @@ Resources:
         FSxLustreFilesystemId: !GetAtt PrerequisitesStack.Outputs.FSxLustreFilesystemId
         FSxLustreFilesystemMountName: !GetAtt PrerequisitesStack.Outputs.FSxLustreFilesystemMountname
         FSxOpenZFSFilesystemId: !GetAtt PrerequisitesStack.Outputs.FSxOFilesystemId
-        NetworkInterfaceCount: !Ref NetworkInterfaceCount
         CapacityReservationId: !Ref CapacityReservationId
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
