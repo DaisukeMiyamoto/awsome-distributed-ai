@@ -38,6 +38,30 @@ See [the README](../README.md#5-usage-examples) for deploy commands; set
 
 ---
 
+## Verified configurations
+
+Key configurations validated on real hardware with these templates (representative
+results; exact bandwidth/throughput vary with NCCL/EFA versions and message size):
+
+| Config | Region | Capacity | Monitoring | NCCL all_reduce (2-node peak busbw) | FSDP Llama-2 7B (2-node) |
+|---|---|---|---|---|---|
+| **2× p6-b300.48xlarge** (16× B300) | us-west-2 | Capacity Block | ✅ v2.6.5, 16 GPUs in Grafana | **~760 GB/s** (EFA, `found 16 nics`, `#wrong 0`) | **~195 TFLOPS/GPU, ~75k tok/s** |
+| **2× p5.48xlarge** (16× H100) | us-east-2 | Capacity Block | ✅ | **~480 GB/s** (EFA, `found 32 nics`, `#wrong 0`) | ~60 TFLOPS/GPU |
+| **Login + CPU (`c6i`)** | us-west-2 / us-east-* | On-Demand | ✅ all targets up | n/a | n/a |
+| **Grafana public access** (login-only SG) | us-west-2 | — | ✅ reachable at `https://<login-public-ip>/grafana/` from the allowed CIDR | — | — |
+
+Notes:
+- **Deploy path:** all of the above came up from `pcs-ml-cluster-deploy-all.yaml`
+  (`BuildAMI=false`, Enroot/Pyxis via `PostInstallScriptUrl`, `DeployMonitoring=true`).
+- **Container runtime:** validated via first-boot UserData install (the default); the
+  pre-baked-AMI path (`BuildAMI=true`) shares the same `install-enroot-pyxis.sh`.
+- **EFA interface count** is derived from the instance type (p5/p5e = 32, p5en = 16,
+  p6-b200 = 8, p6-b300 = 16-of-17); see [README GPU compute](../README.md#gpu-compute-p5p6).
+- **FSDP loss** stays at ln(vocab) in this smoke test — a known dataloader/vocab quirk of
+  the test case, not a cluster issue.
+
+---
+
 ## Test 1: Monitoring stack
 
 With `DeployMonitoring=true` (default), Prometheus/Grafana/exporters install on the
