@@ -442,6 +442,8 @@ Validated configurations:
 
 ## 11. Additional Resources
 
+- [Roadmap / TODO](./docs/ROADMAP.md) — implementation items under consideration
+- [Parameter reference](./docs/PARAMETERS.md) — every deploy-all parameter and default
 - [AWS Parallel Computing Service Documentation](https://docs.aws.amazon.com/pcs/)
 - [AI/ML for AWS PCS Workshop](https://catalog.workshops.aws/ml-on-pcs/)
 - [Slurm Documentation](https://slurm.schedmd.com/documentation.html)
