@@ -56,6 +56,13 @@ Notes:
   (`BuildAMI=false`, Enroot/Pyxis via `PostInstallScriptUrl`, `DeployMonitoring=true`).
 - **Container runtime:** validated via first-boot UserData install (the default); the
   pre-baked-AMI path (`BuildAMI=true`) shares the same `install-enroot-pyxis.sh`.
+- **`BuildAMI=true` path validated** (us-west-2, CPU-only deploy-all, `PostInstallScriptUrl=""`):
+  ImageBuilder produced a custom AMI (`EnrootPyxisInstaller` component); the login/compute
+  nodes booted from it with **`enroot 3.5.0` + Pyxis baked in** (post-install log =
+  `No post-install script configured` — confirming **no first-boot double-install**), the
+  monitoring stack up, and a `cpu1` Pyxis container job (`ubuntu:22.04`) ran clean
+  (`pyxis: imported docker image`). **Set `PostInstallScriptUrl=""` when `BuildAMI=true`** to
+  avoid re-running the installer at boot — see [README container runtime](../README.md#container-runtime-enrootpyxis).
 - **EFA interface count** is derived from the instance type (p5/p5e = 32, p5en = 16,
   p6-b200 = 8, p6-b300 = 16-of-17); see [README GPU compute](../README.md#gpu-compute-p5p6).
 - **FSDP loss** stays at ln(vocab) in this smoke test — a known dataloader/vocab quirk of
