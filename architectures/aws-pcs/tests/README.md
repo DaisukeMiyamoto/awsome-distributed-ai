@@ -46,7 +46,7 @@ results; exact bandwidth/throughput vary with NCCL/EFA versions and message size
 | Config | Region | Capacity | Monitoring | NCCL all_reduce (2-node peak busbw) | FSDP Llama-2 7B (2-node) |
 |---|---|---|---|---|---|
 | **2× p6-b200.48xlarge** (16× B200) | us-west-2 | Capacity Block | ✅ v2.6.5, 16 GPUs in Grafana | **~654 GB/s** (EFA, `found 8 nics`, `#wrong 0`) | **~223 TFLOPS/GPU, ~86k tok/s** |
-| **2× p6-b300.48xlarge** (16× B300) | us-west-2 | Capacity Block | ✅ v2.6.5, 16 GPUs in Grafana | **~760 GB/s** (EFA, `found 16 nics`, `#wrong 0`) | **~195 TFLOPS/GPU, ~75k tok/s** |
+| **2× p6-b300.48xlarge** (16× B300) | us-west-2 | Capacity Block | ✅ v2.6.5, 16 GPUs in Grafana | **~760 GB/s** busbw (EFA, `found 16 nics`, `#wrong 0`) † | **~195 TFLOPS/GPU, ~75k tok/s** |
 | **2× p5.48xlarge** (16× H100) | us-east-2 | Capacity Block | ✅ | **~480 GB/s** (EFA, `found 32 nics`, `#wrong 0`) | ~60 TFLOPS/GPU |
 | **Login + CPU (`c6i`)** | us-west-2 / us-east-* | On-Demand | ✅ all targets up | n/a | n/a |
 | **Grafana public access** (login-only SG) | us-west-2 | — | ✅ reachable at `https://<login-public-ip>/grafana/` from the allowed CIDR | — | — |
@@ -60,6 +60,10 @@ Notes:
   p6-b200 = 8, p6-b300 = 16-of-17); see [README GPU compute](../README.md#gpu-compute-p5p6).
 - **FSDP loss** stays at ln(vocab) in this smoke test — a known dataloader/vocab quirk of
   the test case, not a cluster issue.
+- **† B300 NCCL bandwidth is not yet conclusive.** B300 has 2× the EFA cards of B200
+  (16 vs 8) but the 2-node busbw was only ~1.16× higher — a 2-node / 16 GiB all_reduce
+  likely doesn't saturate all 16 cards. Re-test with **larger message sizes (up to ~64 GiB)
+  and more nodes (4–8+)** before treating ~760 GB/s as B300's peak network bandwidth.
 
 ---
 
