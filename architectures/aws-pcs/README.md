@@ -315,6 +315,15 @@ node-local `/opt` (not the shared `/home`). Pre-built Grafana dashboards (Cluste
 Slurm Detail, GPU Node List, GPU Health, Cluster Costs, Storage) are provisioned
 automatically — see the [screenshot below](#accessing-grafana).
 
+> **Known issue — GPU metrics on p6-b300:** the monitoring stack (`v2.6.5`) pins
+> `dcgm-exporter` to DCGM 4.2.0, which covers Hopper and B200 but **not B300** (B300 needs
+> DCGM ≥ 4.4.0). The pin exists because newer NVCR tags can't be pulled on Docker 29.x.
+> On **p6-b300** nodes the GPU dashboards will therefore stay empty until the monitoring
+> stack can ship a newer DCGM; tracked upstream in
+> [aws-parallelcluster-monitoring#50](https://github.com/aws-samples/aws-parallelcluster-monitoring/issues/50)
+> (making the dcgm-exporter image configurable so a B300-capable build can be supplied by
+> digest). All other GPU types (p5/p5e/p5en/p6-b200) are unaffected.
+
 > **Prefer AWS-managed Prometheus/Grafana?** If you'd rather use Amazon Managed Service
 > for Prometheus + Amazon Managed Grafana instead of the self-hosted stack on the login
 > node, see
