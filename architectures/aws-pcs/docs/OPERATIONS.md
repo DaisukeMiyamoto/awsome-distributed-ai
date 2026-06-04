@@ -68,6 +68,24 @@ script falls back to building every supported version and using the newest insta
 bin on slurmd's PATH — slower and less precise than the cluster path, but enough for a
 manual node fix.
 
+### 2.3 Why a single version is fine across cluster upgrades
+
+Pinning Pyxis and slurmd's PATH to one Slurm version sounds brittle, but Slurm's
+[upgrade policy](https://slurm.schedmd.com/upgrades.html) makes it safe in practice:
+
+> Slurm has long supported in-place upgrades from the previous two major releases.
+> Slurm 24.11 introduced compatibility with the previous three major releases.
+
+So `scontrol`/`srun` from version *N* interoperate with a `slurmctld` of *N+1* (or
+*N+2/N+3* on 24.11+) — a cluster upgrade does not break nodes built for the prior
+version. When you do want to advance, set the new `SlurmVersion` and redeploy: the
+PostInstall path rebuilds Pyxis for the new version on first boot, and the AMI build
+path bakes a new AMI for it. Nothing dynamic is needed on the running node side.
+
+The single-version pin is also why the AMI is *not* a one-AMI-fits-all artifact —
+treat the AMI as bound to a specific cluster `SlurmVersion`, the same way you would
+treat a binary built against a particular libc.
+
 ## 3. Monitoring (`MonitoringVersion`)
 
 `MonitoringVersion` defaults to **`v2.9.1`**, which is what the GPU dashboards on
