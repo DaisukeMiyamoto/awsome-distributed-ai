@@ -1,5 +1,13 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
+#
+# One add-cng template per GPU family by design: this file's NetworkInterfaces
+# block is hand-built for the p6-b200 EFA layout (8 network cards, card 0 = EFA,
+# EFA cards on DeviceIndex 1). p5 and p6-b300 differ enough in NIC topology that a
+# single parameterized template would be either unreadable (~32 per-card !If) or
+# require a CAPABILITY_AUTO_EXPAND transform that breaks the one-click quick-create
+# links. See the rationale in add-cng-p5.yaml and the consolidation item in
+# docs/ROADMAP.md. InstanceType is locked with AllowedValues to match this block.
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Adding Compute Node Group to PCS Cluster with multi-network interface (EFA) support for P6-B200 (8 network cards; On-Demand or Capacity Block)
@@ -74,8 +82,15 @@ Parameters:
 
   InstanceType:
     Type: String
-    Description: Instance Type for Compute Node Group (p6-b200.48xlarge, 8 network cards)
+    Description: >-
+      Instance type for the compute node group. Locked to p6-b200.48xlarge: the
+      NetworkInterfaces block below is hand-built for exactly this family's EFA
+      layout (8 network cards, card 0 EFA), so a different type would launch with
+      the wrong NIC topology. Other GPU families have their own template
+      (add-cng-p5.yaml, add-cng-p6-b300.yaml).
     Default: "p6-b200.48xlarge"
+    AllowedValues:
+      - p6-b200.48xlarge
 
   RootVolumeSize:
     Type: Number

@@ -1,5 +1,23 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
+#
+# Why a separate add-cng template per GPU family (p5 / p6-b200 / p6-b300)?
+# The templates are ~85% identical; the real difference is the NetworkInterfaces
+# block, whose EFA topology differs per family and cannot be parameterized in
+# plain CloudFormation:
+#   - p5 / p5e / p5en: card 0 = EFA, EFA cards use DeviceIndex 1, 32 or 16 cards
+#     (this template already serves all three via the Use32Interfaces condition).
+#   - p6-b200:         card 0 = EFA, DeviceIndex 1, 8 cards.
+#   - p6-b300:         card 0 = ENA-only (no EFA), EFA on cards 1-16 with
+#                      DeviceIndex 0, 17 cards.
+# A single template would need ~32 per-card !If wrappers plus card-0/DeviceIndex
+# branching, which obscures the list and means editing the already-validated
+# p5/p6-b200 blocks. Fn::ForEach (AWS::LanguageExtensions) could generate the list
+# from a mapping, but that transform requires CAPABILITY_AUTO_EXPAND, which breaks
+# the README/workshop one-click quick-create links. So each family keeps its own
+# flat, hand-checkable NIC list. Consolidating via Fn::ForEach is tracked in
+# docs/ROADMAP.md. InstanceType is locked with AllowedValues so a type whose NIC
+# layout doesn't match this template's block can't be selected.
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Adding Compute Node Group to PCS Cluster with multi-network interface support for P5 series (On-Demand or Capacity Block)

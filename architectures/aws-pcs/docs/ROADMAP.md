@@ -19,6 +19,14 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   with a different NIC/EFA layout (e.g. p6e-gb200 = 17 network cards) and likely need an
   arm64 PCS-ready DLAMI and arm64 Enroot/Pyxis builds — validate the AMI, EFA, and a
   sample run.
+- [ ] 🟢 **Consolidate the per-family GPU add-cng templates (p5 / p6-b200 / p6-b300).**
+  The three `add-cng-p6*`/`add-cng-p5` templates are ~85% identical; the real difference
+  is the `NetworkInterfaces` EFA layout (card count, whether card 0 is EFA or ENA-only, and
+  the EFA DeviceIndex). They are kept separate today so each NIC list stays flat and
+  hand-checkable against the EC2 docs. Investigate generating the interface list from a
+  per-instance-type mapping with `Fn::ForEach` (`AWS::LanguageExtensions`) so a new GPU
+  family is a one-line mapping entry — but first confirm the required `CAPABILITY_AUTO_EXPAND`
+  does not break the README/workshop one-click quick-create links.
 - [ ] 🟡 **Document/provision the IAM permissions deploy-all needs.** A one-click /
   deploy-all run creates IAM roles, PCS clusters, EC2/VPC/FSx, Image Builder, SSM, etc.
   Document the minimum deploying-principal permissions (and provide a ready-made policy or
