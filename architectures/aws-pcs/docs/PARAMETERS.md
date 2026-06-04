@@ -22,7 +22,7 @@ runtime options), see the [README](../README.md#4-configuration).
 | Parameter | Default | Purpose |
 |---|---|---|
 | `LoginNodeInstanceType` | `m6i.4xlarge` | Login node instance type |
-| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`) |
+| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`). Drives which monitoring you get (Slurm OpenMetrics is 25.11+ only) and is also threaded into the AMI build / CNG UserData so the right-version Pyxis is installed; see [OPERATIONS.md §1](./OPERATIONS.md#1-slurm-version-selection) |
 | `DeployMonitoring` | `true` | Deploy Prometheus/Grafana/DCGM on the login node |
 | `GrafanaPublicAccessCidr` | *(empty)* | When set to a CIDR, opens HTTPS/443 on the login node to that CIDR via a login-only security group. Empty = SSM port-forward only. **443 also exposes the unauthenticated `/prometheus/`, `/pushgateway/`, `/slurmexporter/` proxy paths**, not just the password-gated Grafana. Use the tightest CIDR you can; `0.0.0.0/0` is accepted for short-lived PoC/workshop use but exposes those endpoints to the whole internet |
 | `ManagedAccounting` | `disabled` | Enable Slurm managed accounting (requires Slurm 24.11+) |
@@ -32,7 +32,7 @@ runtime options), see the [README](../README.md#4-configuration).
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `BuildAMI` | `false` | Pre-bake Enroot/Pyxis into a custom DLAMI (adds ~30 min Image Builder step) instead of installing at first boot |
+| `BuildAMI` | `false` | Pre-bake Enroot/Pyxis into a custom DLAMI (adds ~30 min Image Builder step) instead of installing at first boot. The AMI is **single-Slurm-version** by design: pass the same `SlurmVersion` you'll use on the cluster, otherwise slurmd refuses to start. See [OPERATIONS.md §2](./OPERATIONS.md#2-container-runtime-postinstall-vs-ami-build) |
 | `PostInstallScriptUrl` | Enroot/Pyxis installer | Script run on every node at first boot (PCS equivalent of ParallelCluster `OnNodeConfigured`). Empty = skip; or override with any HTTP(S) script |
 | `PostInstallScriptArgs` | *(empty)* | Arguments passed to the post-install script |
 | `BaseAmiId` | *(auto)* | Base AMI for the custom build; empty = auto-resolve from SSM (only used when `BuildAMI=true`) |
@@ -86,5 +86,6 @@ See [Storage: FSx deployment types](../README.md#storage-fsx-deployment-types-re
 |---|---|---|
 | `S3BucketName` | `awsome-distributed-ai` | S3 bucket the nested templates are fetched from |
 | `S3KeyPrefix` | `templates/` | S3 key prefix for the nested templates |
-| `MonitoringVersion` | `v2.9.1` | [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`). `v2.9.1` adds the `DCGM_EXPORTER_IMAGE` override (needed for B300 GPU metrics); `v2.6.4`+ carry the PCS `/opt` install + Docker-29.x DCGM fixes. Pin to a tag for stability |
+| `MonitoringVersion` | `v2.9.1` | [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`). `v2.9.1` adds the `DCGM_EXPORTER_IMAGE` override (needed for B300 GPU metrics) and brings Grafana 13; `v2.6.4`+ carry the PCS `/opt` install + Docker-29.x DCGM fixes. Pin to a tag for stability. Migration notes: [OPERATIONS.md §3](./OPERATIONS.md#3-monitoring-monitoringversion) |
 | `MonitoringRepo` | `aws-samples/aws-parallelcluster-monitoring` | GitHub `owner/repo` for the monitoring stack; override with a fork + a branch in `MonitoringVersion` to test unreleased changes |
+| `DcgmExporterImage` | *(empty)* | Override the `dcgm-exporter` container image used on GPU nodes. Empty = the monitoring stack's default pin (DCGM 4.2.0, covers up to B200). **For p6-b300** supply a DCGM ≥ 4.4.0 build **by digest** (a digest pull bypasses the Docker-29.x OCI-index pull failure on newer NVCR tags). No effect on CPU nodes. Validated digest + setup details: [OPERATIONS.md §3.1](./OPERATIONS.md#31-b300-gpu-metrics-need-dcgmexporterimage) |
