@@ -152,6 +152,17 @@ Parameters:
       upstream.
     Default: 'aws-samples/aws-parallelcluster-monitoring'
 
+  DcgmExporterImage:
+    Type: String
+    Description: >-
+      (Optional) Override the dcgm-exporter container image used by the monitoring
+      stack on GPU nodes. Leave EMPTY to use the monitoring stack's default pin
+      (DCGM 4.2.0, which covers up to B200). B300 and newer GPUs need DCGM >= 4.4.0:
+      supply a newer build here, preferably by DIGEST (e.g.
+      nvcr.io/nvidia/k8s/dcgm-exporter@sha256:...) so the pull bypasses the Docker
+      29.x OCI-index failure that breaks newer NVCR tags. Has no effect on CPU nodes.
+    Default: ''
+
   MonitoringRole:
     Type: String
     Description: Monitoring role for this node (login=head node with Prometheus/Grafana, compute=compute node with exporters, none=no monitoring)
@@ -312,6 +323,12 @@ Resources:
                 # source. This lets a fork + branch be used for testing unreleased changes.
                 # As of v2.6.3 the installer auto-detects the Ubuntu 'ubuntu' user and runs
                 # install.sh itself (PR #44), so no ec2-user shim or local-var patch is needed.
+                # Optional dcgm-exporter image override (e.g. a B300-capable DCGM
+                # >= 4.4.0 build by digest). The monitoring installer reads
+                # DCGM_EXPORTER_IMAGE from its environment and falls back to its
+                # default pin when empty, so leaving DcgmExporterImage empty keeps
+                # the stock behaviour. See aws-parallelcluster-monitoring #50.
+                export DCGM_EXPORTER_IMAGE="${DcgmExporterImage}"
                 curl -fsSL https://raw.githubusercontent.com/${MonitoringRepo}/${MonitoringVersion}/post-install.sh -o /tmp/post-install.sh
                 # Retry up to 3 times: the install can hit transient first-boot
                 # failures (apt lock contention with cloud-init, network, or the

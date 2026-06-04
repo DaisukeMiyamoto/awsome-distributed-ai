@@ -93,6 +93,8 @@ Metadata:
         default: "Monitoring version (git ref)"
       MonitoringRepo:
         default: "Monitoring repo (owner/repo)"
+      DcgmExporterImage:
+        default: "dcgm-exporter image override (empty = default; set for B300)"
       ManagedAccounting:
         default: "Slurm managed accounting"
       AccountingPolicyEnforcement:
@@ -387,6 +389,16 @@ Parameters:
       together with a branch in MonitoringVersion to test unreleased changes.
     Default: 'aws-samples/aws-parallelcluster-monitoring'
 
+  DcgmExporterImage:
+    Type: String
+    Description: >-
+      (Optional) Override the dcgm-exporter image used by the monitoring stack on
+      GPU nodes. Empty = the stack's default pin (DCGM 4.2.0, up to B200). B300 and
+      newer GPUs need DCGM >= 4.4.0: set a newer build here, preferably by DIGEST
+      (nvcr.io/nvidia/k8s/dcgm-exporter@sha256:...) so the pull bypasses the Docker
+      29.x OCI-index failure on newer NVCR tags. No effect on CPU nodes.
+    Default: ''
+
   # On-Demand Compute Node Group
   DeployOnDemandCNG:
     Type: String
@@ -672,6 +684,7 @@ Resources:
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
         MonitoringRepo: !Ref MonitoringRepo
+        DcgmExporterImage: !Ref DcgmExporterImage
         MonitoringRole: login
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
@@ -713,6 +726,7 @@ Resources:
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
         MonitoringRepo: !Ref MonitoringRepo
+        DcgmExporterImage: !Ref DcgmExporterImage
         MonitoringRole: compute
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
@@ -755,6 +769,7 @@ Resources:
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
         MonitoringRepo: !Ref MonitoringRepo
+        DcgmExporterImage: !Ref DcgmExporterImage
         MonitoringRole: compute
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
@@ -797,6 +812,7 @@ Resources:
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
         MonitoringRepo: !Ref MonitoringRepo
+        DcgmExporterImage: !Ref DcgmExporterImage
         MonitoringRole: compute
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
@@ -839,6 +855,7 @@ Resources:
         DeployMonitoring: !Ref DeployMonitoring
         MonitoringVersion: !Ref MonitoringVersion
         MonitoringRepo: !Ref MonitoringRepo
+        DcgmExporterImage: !Ref DcgmExporterImage
         MonitoringRole: compute
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
