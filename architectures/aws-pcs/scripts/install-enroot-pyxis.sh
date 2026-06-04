@@ -99,11 +99,18 @@ apt_get install -y ./*.deb
 ln -sf /usr/share/enroot/hooks.d/50-slurm-pmi.sh /etc/enroot/hooks.d/
 ln -sf /usr/share/enroot/hooks.d/50-slurm-pytorch.sh /etc/enroot/hooks.d/
 
-mkdir -p /tmp/enroot /tmp/enroot/data
-chmod 1777 /tmp/enroot /tmp/enroot/data
+mkdir -p /tmp/enroot /tmp/enroot/data /tmp/enroot/cache
+chmod 1777 /tmp/enroot /tmp/enroot/data /tmp/enroot/cache
 
 wget -O /tmp/enroot.template.conf https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-post-install-scripts/main/pyxis/enroot.template.conf
-ENROOT_CACHE_PATH=/tmp/enroot envsubst < /tmp/enroot.template.conf > /etc/enroot/enroot.conf
+# Make the cache per-user, like the data/runtime paths. The template already keys
+# ENROOT_DATA_PATH / ENROOT_RUNTIME_PATH on $(id -u); a SHARED cache instead writes
+# layer blobs as 0640 owned by the first importer, so a second user importing any
+# image that shares a layer hits an unreadable blob and the job dies with an opaque
+# "tar: Error is not recoverable". Single-quote the value so $(id -u) stays literal
+# through envsubst (it only expands ${VAR} forms) and enroot evaluates it per-user
+# at runtime. The sticky 1777 parent above lets each user create their own subdir.
+ENROOT_CACHE_PATH='/tmp/enroot/cache/user-$(id -u)' envsubst < /tmp/enroot.template.conf > /etc/enroot/enroot.conf
 chmod 0644 /etc/enroot/enroot.conf
 
 # Install Pyxis for all Slurm versions

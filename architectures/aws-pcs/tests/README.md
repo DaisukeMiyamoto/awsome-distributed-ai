@@ -201,7 +201,7 @@ sbatch 02-nccl-tests.sbatch
 
 ```bash
 cd /fsx
-git clone --depth 1 https://github.com/aws-samples/awsome-distributed-ai.git
+git clone --depth 1 https://github.com/awslabs/awsome-distributed-ai.git
 python3 -m venv /fsx/fsdp-env
 source /fsx/fsdp-env/bin/activate
 pip install -U pip wheel setuptools

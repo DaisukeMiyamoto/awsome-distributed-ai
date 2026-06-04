@@ -290,7 +290,7 @@ Parameters:
       Enroot/Pyxis installer, which is the most common configuration. Set to an
       empty string to skip, or override with another HTTP(S) URL to run a custom
       script. S3 public hosting is not allowed.
-    Default: 'https://raw.githubusercontent.com/aws-samples/awsome-distributed-ai/main/architectures/aws-pcs/scripts/install-enroot-pyxis.sh'
+    Default: 'https://raw.githubusercontent.com/awslabs/awsome-distributed-ai/main/architectures/aws-pcs/scripts/install-enroot-pyxis.sh'
 
   PostInstallScriptArgs:
     Type: String
