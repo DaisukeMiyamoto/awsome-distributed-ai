@@ -103,14 +103,29 @@ Choose **one** of two ways to provide Enroot/Pyxis:
 - **First-boot install (default)**: `PostInstallScriptUrl` runs [`scripts/install-enroot-pyxis.sh`](./scripts/install-enroot-pyxis.sh) on each node — no AMI build, ~8–12 min node boot. Best for testing/infrequent scaling.
 - **Pre-baked AMI** (`BuildAMI=true`): `pcs-ready-dlami-with-enroot-pyxis.yaml` bakes Enroot 3.5.0 + Pyxis 0.20.0 into a custom DLAMI (~30 min build, ~3 min node boot). Best for production/frequent scaling.
 
-> **Don't do both.** `PostInstallScriptUrl` defaults to the Enroot/Pyxis installer, so if
-> you set `BuildAMI=true` **also pass `PostInstallScriptUrl=""`** — otherwise each node
-> both boots the pre-baked AMI *and* re-runs the installer at first boot (wasted time and
-> a possible conflict). With `BuildAMI=false` (default), leave `PostInstallScriptUrl` at
-> its default.
+> **`BuildAMI=true` + `PostInstallScriptUrl`.** `PostInstallScriptUrl` is a generic
+> first-boot hook (not Enroot/Pyxis-specific), so the templates don't force it empty under
+> `BuildAMI=true`. If you set `BuildAMI=true` and leave the default Enroot/Pyxis installer,
+> nothing breaks — the installer is idempotent and skips components already baked into the
+> AMI (a fast no-op) — but for the cleanest boot pass **`PostInstallScriptUrl=""`** (or
+> point it at a different script for other first-boot setup). With `BuildAMI=false`
+> (default), leave `PostInstallScriptUrl` at its default.
 
 The PCS-ready DLAMI base already includes the PCS agent, Slurm 25.05 & 25.11
 (`/opt/aws/pcs/scheduler/slurm-*`), NVIDIA driver + CUDA, and SSM agent.
+
+> **Production tip — pin the AMI.** Left empty, `AmiId` resolves the PCS-ready DLAMI from
+> the SSM public parameter `/aws/service/pcs/ami/dlami-base-ubuntu2404/x86_64/latest/ami-id`.
+> Only a `/latest/` path is published (there is no version-pinned alternative), and
+> CloudFormation re-resolves it on every stack update — so nodes added by a later
+> scale-out/update can boot a newer AMI than the original ones. That's a fine default for
+> evaluation. For production, resolve it once and **pass the resulting AMI ID explicitly as
+> `AmiId`** so every node in the cluster's lifetime is identical:
+>
+> ```bash
+> aws ssm get-parameter --name /aws/service/pcs/ami/dlami-base-ubuntu2404/x86_64/latest/ami-id \
+>   --query 'Parameter.Value' --output text
+> ```
 
 ### GPU compute (P5/P6)
 
