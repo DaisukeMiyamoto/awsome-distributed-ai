@@ -337,10 +337,9 @@ automatically — see the [screenshot below](#accessing-grafana).
 > For p6-b300, pass **`DcgmExporterImage`** a B300-capable build **by digest** (a digest pull
 > bypasses the Docker-29.x OCI-index failure), e.g.
 > `nvcr.io/nvidia/k8s/dcgm-exporter@sha256:a7ad6547d4546eaf4dd5d6b4c0b4db4101e63ef7dc3cdff7f42b767d2c60b706`
-> (DCGM 4.5.2). Validated on 2× p6-b300: all 16 B300 GPUs report in Grafana. This needs the
-> monitoring stack's `DCGM_EXPORTER_IMAGE` support
-> ([aws-parallelcluster-monitoring#51](https://github.com/aws-samples/aws-parallelcluster-monitoring/pull/51),
-> for #50); until it's in a release, point `MonitoringRepo`/`MonitoringVersion` at that branch.
+> (DCGM 4.5.2). Validated on 2× p6-b300: all 16 B300 GPUs report in Grafana. The
+> `DCGM_EXPORTER_IMAGE` support shipped in monitoring **`v2.9.1`** (this template's default
+> `MonitoringVersion`), so the digest override works out of the box — no fork needed.
 > Other GPU types (p5/p5e/p5en/p6-b200) need no override.
 
 > **Prefer AWS-managed Prometheus/Grafana?** If you'd rather use Amazon Managed Service
@@ -350,8 +349,9 @@ automatically — see the [screenshot below](#accessing-grafana).
 
 **Monitoring-related parameters:**
 - `DeployMonitoring` (default `true`)
-- `MonitoringVersion` — [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`; default `v2.6.5`). Pinned to a tag so upstream changes can't break deployments unexpectedly. `v2.6.4`/`v2.6.5` add the PCS fixes (node-local `/opt` install + Docker-29.x DCGM tag).
+- `MonitoringVersion` — [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`; default `v2.9.1`). Pinned to a tag so upstream changes can't break deployments unexpectedly. `v2.9.1` adds the `DCGM_EXPORTER_IMAGE` override (lets `DcgmExporterImage` enable B300 GPU metrics); `v2.6.4`+ carry the PCS fixes (node-local `/opt` install + Docker-29.x DCGM tag).
 - `MonitoringRepo` — `owner/repo` to fetch from (default `aws-samples/aws-parallelcluster-monitoring`). Point at a fork + a branch in `MonitoringVersion` to test unreleased changes.
+- `DcgmExporterImage` — override the dcgm-exporter image (empty = default DCGM 4.2.0, up to B200). For p6-b300 set a DCGM ≥ 4.4.0 build **by digest** (see the [p6-b300 note](#8-monitoring) below).
 
 > Node type is identified by the `monitoring-role` tag (`login`/`compute`), not the EC2
 > `Name` tag — the `Name` tag defaults to `PCS-<cngname>` and is free for you to retag.
@@ -438,9 +438,10 @@ node's model, instance type, utilization, temperature, power, and memory:
 For detailed validation steps and the full test matrix (monitoring, containers, CPU/GPU,
 NCCL, FSDP), see the [Test & Validation Guide](tests/README.md).
 
-> **Use `v2.6.5` or newer for PCS.** Native Ubuntu/PCS support, the node-local `/opt`
+> **Use `v2.9.1` or newer for PCS.** Native Ubuntu/PCS support, the node-local `/opt`
 > install (fixing the shared-`/home` race), and a DCGM exporter tag that pulls on
-> Docker 29.x all landed by `v2.6.5`.
+> Docker 29.x landed by `v2.6.5`; `v2.9.1` adds the `DCGM_EXPORTER_IMAGE` override that
+> lets `DcgmExporterImage` enable B300 GPU metrics without a fork.
 
 ---
 

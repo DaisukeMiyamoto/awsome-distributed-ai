@@ -86,5 +86,5 @@ See [Storage: FSx deployment types](../README.md#storage-fsx-deployment-types-re
 |---|---|---|
 | `S3BucketName` | `awsome-distributed-ai` | S3 bucket the nested templates are fetched from |
 | `S3KeyPrefix` | `templates/` | S3 key prefix for the nested templates |
-| `MonitoringVersion` | `v2.6.5` | [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`). `v2.6.4`/`v2.6.5` include the PCS fixes; pin to a tag for stability |
+| `MonitoringVersion` | `v2.9.1` | [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) git ref (release tag, branch, or `latest`). `v2.9.1` adds the `DCGM_EXPORTER_IMAGE` override (needed for B300 GPU metrics); `v2.6.4`+ carry the PCS `/opt` install + Docker-29.x DCGM fixes. Pin to a tag for stability |
 | `MonitoringRepo` | `aws-samples/aws-parallelcluster-monitoring` | GitHub `owner/repo` for the monitoring stack; override with a fork + a branch in `MonitoringVersion` to test unreleased changes |

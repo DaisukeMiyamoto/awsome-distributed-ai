@@ -48,8 +48,8 @@ results; exact bandwidth/throughput vary with NCCL/EFA versions and message size
 
 | Config | Region | Capacity | Monitoring | NCCL all_reduce (2-node peak busbw) | FSDP Llama-2 7B (2-node) |
 |---|---|---|---|---|---|
-| **2× p6-b200.48xlarge** (16× B200) | us-west-2 | Capacity Block | ✅ v2.6.5, 16 GPUs in Grafana | **~654 GB/s** @16 GiB (EFA, `found 8 nics`, `#wrong 0`) | **~223 TFLOPS/GPU, ~86k tok/s** |
-| **2× p6-b300.48xlarge** (16× B300) | us-west-2 | Capacity Block | ✅ v2.7 + `DcgmExporterImage` digest, 16 B300 GPUs in Grafana ‡ | **~751 GB/s** @64 GiB (EFA, `found 16 nics`, `#wrong 0`) † | **~200 TFLOPS/GPU, ~77k tok/s** (venv); **~193 TFLOPS/GPU** (container) |
+| **2× p6-b200.48xlarge** (16× B200) | us-west-2 | Capacity Block | ✅ v2.9.1, 16 GPUs in Grafana | **~654 GB/s** @16 GiB (EFA, `found 8 nics`, `#wrong 0`) | **~223 TFLOPS/GPU, ~86k tok/s** |
+| **2× p6-b300.48xlarge** (16× B300) | us-west-2 | Capacity Block | ✅ v2.9.1 + `DcgmExporterImage` digest, 16 B300 GPUs in Grafana ‡ | **~751 GB/s** @64 GiB (EFA, `found 16 nics`, `#wrong 0`) † | **~205 TFLOPS/GPU, ~79k tok/s** (venv); **~193 TFLOPS/GPU** (container) |
 | **2× p5.48xlarge** (16× H100) | us-east-2 | Capacity Block | ✅ | **~480 GB/s** (EFA, `found 32 nics`, `#wrong 0`) | ~60 TFLOPS/GPU |
 | **Login + CPU (`c6i`)** | us-west-2 / us-east-* | On-Demand | ✅ all targets up | n/a | n/a |
 | **Grafana public access** (login-only SG) | us-west-2 | — | ✅ reachable at `https://<login-public-ip>/grafana/` from the allowed CIDR | — | — |
@@ -84,10 +84,9 @@ Notes:
   (deploy-all) / **`DCGM_EXPORTER_IMAGE`** (monitoring) a B300-capable build **by digest** to
   bypass the Docker-29.x OCI-index pull failure — validated on 2× p6-b300 with
   `nvcr.io/nvidia/k8s/dcgm-exporter@sha256:a7ad6547…` (DCGM 4.5.2): the digest pulls on Docker
-  29.5.3 and Grafana shows all 16 B300 GPUs (temp/util/power/NVLink/DCP profiling). Needs the
-  monitoring `DCGM_EXPORTER_IMAGE` support
-  ([aws-parallelcluster-monitoring#51](https://github.com/aws-samples/aws-parallelcluster-monitoring/pull/51),
-  for #50); until released, point `MonitoringRepo`/`MonitoringVersion` at that branch.
+  29.5.3 and Grafana shows all 16 B300 GPUs (temp/util/power/NVLink/DCP profiling). The
+  `DCGM_EXPORTER_IMAGE` support shipped in monitoring **`v2.9.1`** (the default
+  `MonitoringVersion`), so the digest override works with the released stack — no fork needed.
   Other GPU types (p5/p5e/p5en/p6-b200) report GPU metrics on the default pin with no override.
 
 ---
@@ -110,7 +109,7 @@ curl -s http://localhost:6817/metrics | head               # Slurm OpenMetrics
 **Expected:** the six login containers are `Up`; install log exits 0; the tree is under
 `/opt`; all Prometheus targets `up`; Slurm OpenMetrics returns Prometheus-format text.
 For dashboard access (SSM port-forward or public CIDR) see
-[README §8 Monitoring](../README.md#8-monitoring). Use `MonitoringVersion=v2.6.5`+ on PCS.
+[README §8 Monitoring](../README.md#8-monitoring). Use `MonitoringVersion=v2.9.1`+ on PCS.
 
 ---
 
