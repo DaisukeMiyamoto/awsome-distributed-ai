@@ -599,6 +599,10 @@ Resources:
         BaseAmiId: !Ref BaseAmiId
         SemanticVersion: !Ref SemanticVersion
         BuildSchedule: !Ref BuildSchedule
+        # The AMI bakes Pyxis built specifically for this Slurm version (the SPANK
+        # plugin ABI is version-locked) -- pass the cluster's SlurmVersion so AMI
+        # and cluster always match.
+        SlurmVersion: !Ref SlurmVersion
         PublishToSsm: 'false'
         EnableLifecyclePolicy: 'false'
       Tags:
