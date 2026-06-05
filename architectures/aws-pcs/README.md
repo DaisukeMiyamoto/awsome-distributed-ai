@@ -262,49 +262,40 @@ See [Connect to Cluster](https://catalog.workshops.aws/ml-on-pcs/en-US/03-cluste
 
 ## 7. Running a multi-node GPU job (NCCL test)
 
-A quick way to confirm the GPU queue, Pyxis containers, and EFA all work end-to-end is
-the [NCCL tests](https://github.com/NVIDIA/nccl-tests) `all_reduce_perf` benchmark across
-2 nodes. Run these on the login node as the `ubuntu` user, with a GPU queue deployed
-(e.g. `gpu-p6b300`, adjust the partition name to yours).
+The repo's canonical NCCL launcher
+[`micro-benchmarks/nccl-tests/slurm/nccl-tests-container.sbatch`](../../micro-benchmarks/nccl-tests/slurm/nccl-tests-container.sbatch)
+runs an `all_reduce_perf` benchmark across 2 nodes and is the quickest way to confirm
+the GPU queue, Pyxis containers, and EFA work end-to-end. Two PCS-specific deltas are
+all you need to add:
 
-**1. Import the container image once** — run it right on the login node (it has Enroot
-and writes the `.sqsh` to shared `/fsx`, so every compute node can use it):
-
-```bash
-enroot import -o /fsx/nccl-tests.sqsh dockerd://public.ecr.aws/hpc-cloud/nccl-tests
-```
-
-**2. Submit a 2-node, 16-GPU all_reduce** (`nccl-test.sbatch`):
+**1. Import the image on the login node** — `enroot import` builds its overlayfs on the
+node-local root disk (the login node has 300 GiB), and FSx Lustre can't host that
+overlay; only the resulting `.sqsh` lands on shared `/fsx`. Pin a specific image tag
+for reproducible numbers (don't use `latest`):
 
 ```bash
-cat > nccl-test.sbatch <<'EOF'
-#!/bin/bash
-#SBATCH --job-name=nccl-allreduce
-#SBATCH --partition=gpu-p6b300
-#SBATCH --nodes=2
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:8
-#SBATCH --exclusive
-#SBATCH --output=/fsx/nccl-%j.out
-
-export FI_PROVIDER=efa
-export NCCL_DEBUG=INFO
-
-srun --mpi=pmix --container-image=/fsx/nccl-tests.sqsh --container-mounts=/fsx:/fsx \
-  /opt/nccl-tests/build/all_reduce_perf -b 8 -e 16G -f 2 -g 1
-EOF
-
-sbatch nccl-test.sbatch
+TAG=cuda12.8.1-efa1.43.2-ofiv1.16.3-ncclv2.27.7-1-testsv2.16.9
+enroot import -o /fsx/nccl-tests.sqsh "docker://public.ecr.aws#hpc-cloud/nccl-tests:${TAG}"
 ```
 
-**3. Check the result** (`/fsx/nccl-<jobid>.out`). EFA is in use when you see
+**2. Submit on your GPU partition** — the canonical sbatch reads `$IMAGE`
+(`/fsx/nccl-tests.sqsh` by default) and defaults to 2 nodes / 8 tasks per node:
+
+```bash
+cd /fsx && git clone --depth 1 https://github.com/awslabs/awsome-distributed-ai.git
+sbatch --partition=gpu-p6b300 \
+  /fsx/awsome-distributed-ai/micro-benchmarks/nccl-tests/slurm/nccl-tests-container.sbatch
+```
+
+**3. Check the result** (`nccl-all_reduce_perf_<jobid>.out`). EFA is in use when you see
 `NET/OFI Selected provider is efa ... (found N nics)`, and a healthy run ends with
 `# Out of bounds values : 0 OK` plus a busbw column that scales up with message size
 (e.g. ~751 GB/s at 64 GiB on 2× p6-b300; raise `-e` past the default 16 GiB to saturate
 B300's 16 EFA cards).
 
-For a full training example (FSDP), see the
-[PyTorch FSDP test case](../../3.test_cases/pytorch/FSDP).
+For a full training example, see the [PyTorch FSDP test case](../../3.test_cases/pytorch/FSDP).
+For the full validation matrix (monitoring, containers, CPU/GPU, NCCL, FSDP) and the
+PCS deltas worth knowing, see the [Test & Validation Guide](tests/README.md).
 
 ---
 
