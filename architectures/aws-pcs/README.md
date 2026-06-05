@@ -475,4 +475,4 @@ Validated configurations:
 - [Capacity Blocks for ML](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-blocks.html)
 - [aws-parallelcluster-monitoring](https://github.com/aws-samples/aws-parallelcluster-monitoring) (upstream monitoring)
 - [Prometheus & Grafana Setup](../../4.validation_and_observability/4.prometheus-grafana/README.md) (alternative: AWS-managed Prometheus/Grafana)
-- [LDAP Server Setup Guide](../6.ldap_server/README.md) — OpenLDAP for cluster-wide user management
+- [LDAP Server Setup Guide](../../1.architectures/6.ldap_server/README.md) — OpenLDAP for cluster-wide user management

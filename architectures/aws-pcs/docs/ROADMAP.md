@@ -63,7 +63,7 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
 
 - [ ] 🟡 **Integrate a user-management backend (LDAP/AD).** Provide a way to manage cluster
   users centrally instead of the single `ubuntu` user — e.g. integrate an LDAP/OpenLDAP or
-  AWS Managed Microsoft AD directory (see `architectures/6.ldap_server`) so login/compute
+  AWS Managed Microsoft AD directory (see `1.architectures/6.ldap_server`) so login/compute
   nodes authenticate against a shared directory (multi-user clusters, per-user home dirs,
   Slurm accounting per user).
 
