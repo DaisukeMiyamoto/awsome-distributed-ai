@@ -85,6 +85,7 @@ Availability Zone (`PrimarySubnetAZ`). The most-used parameters:
 | Parameter | Default | Purpose |
 |---|---|---|
 | `PrimarySubnetAZ` | *(required)* | Availability Zone to deploy into — the one required parameter |
+| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`); 25.11 is needed for the Slurm OpenMetrics dashboards. Drives Pyxis build version too. See [OPERATIONS.md §1](./docs/OPERATIONS.md#1-slurm-version-selection) |
 | `BuildAMI` | `false` | Pre-bake Enroot/Pyxis into a custom DLAMI instead of installing at first boot |
 | `DeployMonitoring` | `true` | Deploy Prometheus/Grafana/DCGM on the login node |
 | `DeployOnDemandCNG` | `true` | Deploy the `cpu1` CPU queue (`OnDemandInstanceType`, default `c6i.4xlarge`) |
@@ -101,7 +102,7 @@ choices that need the most thought.
 Choose **one** of two ways to provide Enroot/Pyxis:
 
 - **First-boot install (default)**: `PostInstallScriptUrl` runs [`scripts/install-enroot-pyxis.sh`](./scripts/install-enroot-pyxis.sh) on each node — no AMI build, ~8–12 min node boot. Best for testing/infrequent scaling.
-- **Pre-baked AMI** (`BuildAMI=true`): `pcs-ready-dlami-with-enroot-pyxis.yaml` bakes Enroot 3.5.0 + Pyxis 0.20.0 into a custom DLAMI (~30 min build, ~3 min node boot). Best for production/frequent scaling.
+- **Pre-baked AMI** (`BuildAMI=true`): `pcs-ready-dlami-with-enroot-pyxis.yaml` bakes Enroot 3.5.0 + Pyxis 0.20.0 into a custom DLAMI (~30 min build, ~3 min node boot). Best for production/frequent scaling. The template also wraps the build in a managed Image Builder pipeline with optional **scheduled rebuilds** (`BuildSchedule=Weekly`/`Monthly`), an **AMI lifecycle policy** that deprecates older AMIs after a configurable window, and **SSM parameter publishing** so other stacks can resolve the latest AMI ID. Without these, an equivalent build would be a one-shot ad-hoc invocation; the in-stack pipeline is what justifies the extra surface vs. just passing `AmiId` to a hand-built AMI.
 
 > **`BuildAMI=true` + `PostInstallScriptUrl`.** `PostInstallScriptUrl` is a generic
 > first-boot hook (not Enroot/Pyxis-specific), so the templates don't force it empty under
