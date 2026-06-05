@@ -94,7 +94,7 @@ Metadata:
       MonitoringRepo:
         default: "Monitoring repo (owner/repo)"
       DcgmExporterImage:
-        default: "dcgm-exporter image override (empty = default; set for B300)"
+        default: "dcgm-exporter image (default DCGM 4.5.2 by digest; covers H100/B200/B300)"
       ManagedAccounting:
         default: "Slurm managed accounting"
       AccountingPolicyEnforcement:
