@@ -32,6 +32,18 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   Document the minimum deploying-principal permissions (and provide a ready-made policy or
   a deploy-role CloudFormation/managed policy), so users in restricted accounts can grant
   exactly what's required instead of needing broad admin.
+- [ ] 🟡 **Client-side Lustre-on-EFA + GDS support (P5 / P5e / P5en / P6-B200).**
+  `FSxLustreEnableEfa=true` configures the *FSx server side* (PERSISTENT_2 EfaEnabled).
+  The *client side* — installing the Lustre client + EFA modules, configuring LNet over
+  EFA via the AWS-provided `setup.sh --optimized-for-gds`, and (for GDS) building/loading
+  `nvidia-fs.ko` with `cufile.json` — is currently out of scope and not handled by
+  `install-enroot-pyxis.sh`. Add a new opt-in post-install path
+  (e.g. `scripts/install-fsx-lustre-efa.sh`) that runs the
+  [official FSx EFA client setup](https://docs.aws.amazon.com/fsx/latest/LustreGuide/configure-efa-clients.html)
+  and the GDS driver build, surface a `OnDemandEnableFSxLustreEfaClient` /
+  `PseriesEnableFSxLustreEfaClient` toggle to invoke it, and validate with GDSIO end-to-end.
+  Reference design + 8x H200 throughput numbers (~78-94 GiB/s on a 96 TiB filesystem) at
+  [aws-samples/sample-fsx-lustre-gds-sharded-model-loading](https://github.com/aws-samples/sample-fsx-lustre-gds-sharded-model-loading).
 
 ## Software stack
 
