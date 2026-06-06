@@ -64,6 +64,7 @@ Metadata:
           - PerUnitStorageThroughput
           - Compression
           - LustreVersion
+          - FSxLustreEnableEfa
           - HomeCapacity
           - HomeThroughput
           - OpenZFSDeploymentType
@@ -152,6 +153,8 @@ Metadata:
         default: "FSx for Lustre (/fsx) compression"
       LustreVersion:
         default: "FSx for Lustre (/fsx) version"
+      FSxLustreEnableEfa:
+        default: "FSx for Lustre (/fsx) EFA + GDS support (PERSISTENT_2 only)"
       HomeCapacity:
         default: "FSx for OpenZFS (/home) capacity (GiB)"
       HomeThroughput:
@@ -237,6 +240,18 @@ Parameters:
       - "2.15"
       - "2.12"
     Default: "2.15"
+
+  FSxLustreEnableEfa:
+    Description: >-
+      (Optional) Enable EFA + GPUDirect Storage (GDS) on the FSx for Lustre
+      filesystem. Default false. PERSISTENT_2 only -- silently ignored on
+      PERSISTENT_1. EFA-capable clients (CPU CNGs with OnDemandEnableEfa=true,
+      P5/P6 GPU CNGs) get a libfabric/GDS path to Lustre when enabled.
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
 
   HomeCapacity:
     Description: "Home directories storage capacity in GiB"
@@ -590,6 +605,7 @@ Resources:
         PerUnitStorageThroughput: !Ref PerUnitStorageThroughput
         Compression: !Ref Compression
         LustreVersion: !Ref LustreVersion
+        FSxLustreEnableEfa: !Ref FSxLustreEnableEfa
         HomeCapacity: !Ref HomeCapacity
         HomeThroughput: !Ref HomeThroughput
         OpenZFSDeploymentType: !Ref OpenZFSDeploymentType

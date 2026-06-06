@@ -31,6 +31,7 @@ Metadata:
           default: FSx for Lustre (/fsx) storage size
         Parameters:
           - Capacity
+          - FSxLustreEnableEfa
       - Label:
           default: Network and S3 endpoints configuration
         Parameters:
@@ -38,6 +39,8 @@ Metadata:
     ParameterLabels:
       VPCName:
         default: Name of your VPC
+      FSxLustreEnableEfa:
+        default: Enable EFA + GDS on FSx for Lustre (PERSISTENT_2 only)
       PrimarySubnetAZ:
         default: Availability zone id to deploy the primary subnets
       CreateS3Endpoint:
@@ -108,6 +111,20 @@ Parameters:
       - "2.15"
       - "2.12"
     Default: "2.15"
+
+  FSxLustreEnableEfa:
+    Description: >-
+      (Optional) Enable EFA + GPUDirect Storage (GDS) support on the FSx for
+      Lustre filesystem. Default false. When true, EFA-capable clients (e.g.
+      compute nodes deployed with OnDemandEnableEfa=true or P5/P6 GPU CNGs) can
+      use libfabric/EFA paths to access Lustre, including GDS for direct
+      GPU-to-storage transfers. No-op for clients that don't have EFA. Only
+      affects the FSx side; the client side is set per CNG.
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
 
   HomeCapacity:
     Description: "Home directories storage capacity in GiB"
@@ -193,6 +210,11 @@ Conditions:
   # configuration (and the EFA/Intelligent-Tiering features); PERSISTENT_1 does
   # not, so the MetadataConfiguration block is only emitted for PERSISTENT_2.
   LustreIsPersistent2: !Equals [!Ref 'LustreDeploymentType', 'PERSISTENT_2']
+  # EFA + GDS support on Lustre is a PERSISTENT_2-only feature. Only emit
+  # EfaEnabled when both the user opted in AND the deployment type supports it.
+  FSxLustreEfaEnabled: !And
+    - !Equals [!Ref 'FSxLustreEnableEfa', 'true']
+    - !Condition LustreIsPersistent2
 
 #########################
 ## VPC & Network Setup ##
@@ -389,6 +411,13 @@ Resources:
         MetadataConfiguration: !If
           - LustreIsPersistent2
           - Mode: AUTOMATIC
+          - !Ref AWS::NoValue
+        # EfaEnabled enables EFA + GPUDirect Storage (GDS) on the FSx-side
+        # endpoints. PERSISTENT_2 only; the FSxLustreEfaEnabled condition gates
+        # both the user toggle and the deployment-type prerequisite.
+        EfaEnabled: !If
+          - FSxLustreEfaEnabled
+          - true
           - !Ref AWS::NoValue
 
 
