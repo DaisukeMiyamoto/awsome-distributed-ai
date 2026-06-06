@@ -1,6 +1,6 @@
 # AWS Parallel Computing Service Distributed Training Reference Architecture
 
-This repository provides reference architectures and deployment templates for setting up distributed training clusters using [AWS Parallel Computing Service (PCS)](https://aws.amazon.com/pcs/). AWS Parallel Computing Service is a fully managed service that makes it easy to run and scale HPC workloads using Slurm scheduler. These architectures are optimized for machine learning workloads and include configurations for high-performance computing instances (P and Trn EC2 families) with shared filesystems (FSx for Lustre and OpenZFS).
+This repository provides reference architectures and deployment templates for setting up distributed training clusters using [AWS Parallel Computing Service (PCS)](https://aws.amazon.com/pcs/). AWS Parallel Computing Service is a fully managed service that makes it easy to run and scale HPC workloads using Slurm scheduler. These architectures are optimized for machine learning workloads and ship dedicated multi-NIC EFA launch templates for the **P5 / P5e / P5en / P6-B200 / P6-B300** GPU families with shared filesystems (FSx for Lustre and OpenZFS).
 
 > **Upstream Repository**: These templates are based on [aws-samples/aws-hpc-recipes](https://github.com/aws-samples/aws-hpc-recipes/tree/main/recipes/pcs), customized for ML workloads: container support (Enroot/Pyxis) installable at first boot without an AMI build, built-in monitoring, updated Slurm versions (25.05/25.11), and dedicated P5/P6 multi-NIC EFA templates. The templates in this repository are maintained independently and may diverge from the upstream recipes.
 
@@ -213,22 +213,11 @@ switch these parameters to a type your Region supports.
 
 ## 5. Usage Examples
 
-All examples start by setting `AZ_ID` — the one required choice.
+The default cluster (1 login + `cpu1` queue) is covered in [§3 Quick Start](#3-quick-start);
+the examples below show the more common customizations. Each one starts by setting
+`AZ_ID` — the one required choice.
 
-### Example 1: Default CPU cluster
-
-```bash
-AZ_ID=us-east-1a   # your target Availability Zone
-
-aws cloudformation create-stack \
-  --stack-name cpu-cluster \
-  --template-url https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml \
-  --parameters ParameterKey=PrimarySubnetAZ,ParameterValue=${AZ_ID} \
-  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
-```
-1 login node + `cpu1` queue (c6i.4xlarge, 0–4 nodes, dynamic scaling).
-
-### Example 2: Single-NIC GPU queue (G6)
+### Example 1: Single-NIC GPU queue (G6)
 
 ```bash
 AZ_ID=us-east-1a   # your target Availability Zone
@@ -246,7 +235,7 @@ aws cloudformation create-stack \
 ```
 Replaces the default `cpu1` queue with a `gpu-g6` queue of g6.12xlarge instances.
 
-### Example 3: Multi-NIC GPU with a Capacity Block (P6-B300)
+### Example 2: Multi-NIC GPU with a Capacity Block (P6-B300)
 
 ```bash
 AZ_ID=us-west-2b
@@ -271,6 +260,31 @@ and the EFA interface count is derived from the instance type — no interface-c
 parameter to set. For `p6-b200.48xlarge` or any P5 type, just change
 `PseriesInstanceType`. `CapacityReservationId` here is the **Capacity Block** ID; for
 On-Demand or an "open" ODCR, leave it empty (see [GPU compute](#gpu-compute-p5p6)).
+
+### Example 3: HPC EFA on the CPU queue (hpc7a)
+
+```bash
+AZ_ID=us-east-2b   # check your target type's AZ availability first
+
+aws cloudformation create-stack \
+  --stack-name hpc7a-cluster \
+  --template-url https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml \
+  --parameters \
+    ParameterKey=PrimarySubnetAZ,ParameterValue=${AZ_ID} \
+    ParameterKey=OnDemandCngName,ParameterValue=hpc7a \
+    ParameterKey=OnDemandQueueName,ParameterValue=hpc \
+    ParameterKey=OnDemandInstanceType,ParameterValue=hpc7a.96xlarge \
+    ParameterKey=OnDemandMaxCount,ParameterValue=4 \
+    ParameterKey=OnDemandEnableEfa,ParameterValue=true \
+    ParameterKey=OnDemandEfaInterfaceCount,ParameterValue=2 \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+```
+Replaces the default `cpu1` queue with an `hpc` queue of EFA-enabled
+hpc7a.96xlarge nodes. The CNG launches in an auto-created cluster placement
+group. For other HPC types, set `OnDemandInstanceType` and the matching
+`OnDemandEfaInterfaceCount` from the table in
+[EFA on CPU HPC instances](#efa-on-cpu-hpc-instances-ondemandenableefa)
+(hpc6a/hpc7g/c7gn = `1`; hpc7a/hpc6id/hpc8a = `2`).
 
 ---
 
@@ -314,23 +328,30 @@ runs an `all_reduce_perf` benchmark across 2 nodes and is the quickest way to co
 the GPU queue, Pyxis containers, and EFA work end-to-end. Two PCS-specific deltas are
 all you need to add:
 
-**1. Import the image on the login node** — `enroot import` builds its overlayfs on the
-node-local root disk (the login node has 300 GiB), and FSx for Lustre can't host that
-overlay; only the resulting `.sqsh` lands on shared `/fsx`. Pin a specific image tag
-for reproducible numbers (don't use `latest`):
+All commands below run **on the login node** after you connect via SSM
+(see [§6 Accessing the Cluster](#6-accessing-the-cluster)). `/fsx` is the
+shared FSx for Lustre filesystem mounted on every node — login and compute —
+so anything you put under `/fsx` from the login node is immediately visible
+to the compute nodes the sbatch lands on.
+
+**1. Import the image** — `enroot import` builds its overlayfs on the node-local
+root disk (the login node has 300 GiB), and FSx for Lustre can't host that
+overlay; only the resulting `.sqsh` lands on shared `/fsx`. Pin a specific image
+tag for reproducible numbers (don't use `latest`):
 
 ```bash
 TAG=cuda12.8.1-efa1.43.2-ofiv1.16.3-ncclv2.27.7-1-testsv2.16.9
 enroot import -o /fsx/nccl-tests.sqsh "docker://public.ecr.aws#hpc-cloud/nccl-tests:${TAG}"
 ```
 
-**2. Submit on your GPU partition** — the canonical sbatch reads `$IMAGE`
-(`/fsx/nccl-tests.sqsh` by default) and defaults to 2 nodes / 8 tasks per node:
+**2. Submit on your GPU partition** — fetch the canonical sbatch (it reads
+`$IMAGE`, default `/fsx/nccl-tests.sqsh`, and defaults to 2 nodes / 8 tasks
+per node) and submit it:
 
 ```bash
-cd /fsx && git clone --depth 1 https://github.com/awslabs/awsome-distributed-ai.git
-sbatch --partition=gpu-p6b300 \
-  /fsx/awsome-distributed-ai/micro-benchmarks/nccl-tests/slurm/nccl-tests-container.sbatch
+cd /fsx
+wget https://raw.githubusercontent.com/awslabs/awsome-distributed-ai/main/micro-benchmarks/nccl-tests/slurm/nccl-tests-container.sbatch
+sbatch --partition=gpu-p6b300 nccl-tests-container.sbatch
 ```
 
 **3. Check the result** (`nccl-all_reduce_perf_<jobid>.out`). EFA is in use when you see
