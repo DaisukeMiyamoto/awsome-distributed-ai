@@ -92,7 +92,7 @@ only needs the Availability Zone (`PrimarySubnetAZ`). The most-used parameters:
 | `AmiId` | *(empty → SSM auto)* | Empty auto-resolves to the latest **PCS-Ready Deep Learning AMI** (Ubuntu 24.04) from SSM. Pin to a specific `ami-xxx` for production, or pass an AMI built by [`pcs-ready-dlami-with-enroot-pyxis.yaml`](#9-pre-baking-enrootpyxis-into-a-custom-ami-optional) |
 | `DeployMonitoring` | `true` | Deploy Prometheus + Grafana on the login node, plus DCGM Exporter on GPU compute nodes |
 | `DeployOnDemandCNG` | `true` | Deploy the `cpu1` CPU queue (`OnDemandInstanceType`, default `c6i.4xlarge`) |
-| `OnDemandEnableEfa` | `false` | Set `true` for HPC/MPI workloads on EFA-capable CPU types (hpc6a/hpc7a/hpc7g/hpc6id/hpc8a, c7gn etc.). Auto-creates a cluster placement group. See [EFA on CPU HPC instances](#efa-on-cpu-hpc-instances-ondemandenableefa) |
+| `OnDemandEnableEfa` | `false` | Set `true` for HPC/MPI workloads on EFA-capable CPU types (hpc6a/hpc7a/hpc6id/hpc8a, c7i.metal, etc.). Auto-creates a cluster placement group. See [EFA on CPU HPC instances](#efa-on-cpu-hpc-instances-ondemandenableefa) |
 | `DeployPseriesCNG` | `false` | Deploy a GPU (P5/P6) queue — see [GPU compute](#gpu-compute-p5p6) |
 | `PseriesInstanceType` | `p5.48xlarge` | GPU instance type; auto-selects the multi-NIC template + EFA count |
 | `CapacityReservationId` | *(empty)* | Capacity **Block** ID for the GPU queue; empty for On-Demand/ODCR |
@@ -155,10 +155,9 @@ own dedicated multi-NIC EFA wiring per-family.
 |---|---:|---:|---:|
 | `hpc6a.48xlarge` | 1 | 100 Gbps | **1** |
 | `hpc7a.96xlarge` (and 12/24/48) | 2 | 300 Gbps | **2** |
-| `hpc7g.16xlarge` (Graviton) | 1 | 200 Gbps | **1** |
 | `hpc6id.32xlarge` | 2 | 200 Gbps | **2** |
 | `hpc8a.96xlarge` | 2 | 300 Gbps | **2** |
-| `c7gn.16xlarge` / `c7i.metal-48xl` etc. | 1 | varies | **1** |
+| `c7i.metal-48xl` etc. | 1 | varies | **1** |
 
 (Mismatching `OnDemandEfaInterfaceCount` with the instance type's actual
 `MaximumEfaInterfaces` fails at launch.)
@@ -182,7 +181,7 @@ capable type; switch to a more widely available one if your Region needs it.
 |---|---|---|---|---|
 | Lustre (`/fsx`) | `LustreDeploymentType` | `PERSISTENT_2` | `PERSISTENT_1` | `PERSISTENT_2` (throughput 125/250/500/1000, metadata config) isn't in every Region; `PERSISTENT_1` (50/100/200) is in more Regions |
 | Lustre (`/fsx`) | `PerUnitStorageThroughput` | `250` | any valid number | Must be valid for the type: P2 = 125/250/500/1000, P1 = 50/100/200 |
-| Lustre (`/fsx`) | `FSxLustreEnableEfa` | `false` | `true` | Enable EFA + GPUDirect Storage (GDS) on the Lustre filesystem, so EFA-capable clients (CPU CNGs with `OnDemandEnableEfa=true` or P5/P6 GPU CNGs) can use a libfabric/GDS path to storage. **PERSISTENT_2 SSD only** — silently ignored on PERSISTENT_1. **Requires a much higher minimum `Capacity`** than the non-EFA default: at `PerUnitStorageThroughput=250` the minimum is **19200 GiB** (16× the 1200 GiB default). Set `Capacity` accordingly when enabling this |
+| Lustre (`/fsx`) | `FSxLustreEnableEfa` | `false` | `true` | Enable EFA on the Lustre filesystem. **The headline feature is GPUDirect Storage (GDS) for P5 / P5e / P5en / P6-B200 GPU CNGs**, which DMAs file data straight into GPU memory (requires the NVIDIA `nvidia-fs` / cuFile stack on the client — see [`docs/ROADMAP.md`](./docs/ROADMAP.md#client-side-lustre-on-efa--gds-support)). EFA-capable CPU CNGs (`OnDemandEnableEfa=true`) get the EFA *transport* path to storage as a secondary benefit, useful when a single client is pushing past ~10 GBps. **PERSISTENT_2 SSD only** (a CFN Rule fails the stack at create time on PERSISTENT_1). **Requires a much higher minimum `Capacity`**: at `PerUnitStorageThroughput=250` the minimum is **19200 GiB** (16× the 1200 GiB default). Set `Capacity` accordingly when enabling this |
 | OpenZFS (`/home`) | `OpenZFSDeploymentType` | `SINGLE_AZ_HA_2` | `SINGLE_AZ_HA_1`, `SINGLE_AZ_2`, `SINGLE_AZ_1` | `SINGLE_AZ_1` is in all Regions; HA/2 variants vary. `MULTI_AZ` excluded (needs a second subnet) |
 | OpenZFS (`/home`) | `HomeThroughput` | `320` | any valid number | Throughput (MB/s). Valid values depend on the deployment type: `SINGLE_AZ_2`/`SINGLE_AZ_HA_2` = 160/320/640/1280/2560/3840/5120/7680/10240; `SINGLE_AZ_HA_1` = 128/256/512/1024/2048/3072/4096; `SINGLE_AZ_1` = 64/128/256/512/1024/2048/3072/4096 |
 
@@ -267,7 +266,7 @@ hpc7a.96xlarge nodes. The CNG launches in an auto-created cluster placement
 group. For other HPC types, set `OnDemandInstanceType` and the matching
 `OnDemandEfaInterfaceCount` from the table in
 [EFA on CPU HPC instances](#efa-on-cpu-hpc-instances-ondemandenableefa)
-(hpc6a/hpc7g/c7gn = `1`; hpc7a/hpc6id/hpc8a = `2`).
+(hpc6a = `1`; hpc7a/hpc6id/hpc8a = `2`).
 
 ---
 
@@ -516,7 +515,7 @@ parameter and default, see [PARAMETERS.md](./docs/PARAMETERS.md).
 | [`pcs-ml-cluster-deploy-all.yaml`](./assets/pcs-ml-cluster-deploy-all.yaml) | All-in-one: Prerequisites + (optional AMI) + Cluster + login/CPU/GPU CNGs | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/pcs-ml-cluster-deploy-all.yaml&stackName=pcs-ml-cluster) |
 | [`ml-cluster-prerequisites.yaml`](./assets/ml-cluster-prerequisites.yaml) | VPC, subnets, security groups, FSx for Lustre + OpenZFS | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/ml-cluster-prerequisites.yaml&stackName=pcs-prerequisites) |
 | [`cluster.yaml`](./assets/cluster.yaml) | PCS cluster core (Slurm scheduler only, no nodes) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/cluster.yaml&stackName=pcs-cluster) |
-| [`add-cng.yaml`](./assets/add-cng.yaml) | Compute node group — login nodes, CPU / single-NIC-GPU queues (C6i, G5, G6); switches to a multi-NIC EFA `NetworkInterfaces` block when `EnableEfa=true` (HPC types: hpc6a/hpc7a/hpc7g/hpc6id/hpc8a, c7gn …) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) |
+| [`add-cng.yaml`](./assets/add-cng.yaml) | Compute node group — login nodes, CPU / single-NIC-GPU queues (C6i, G5, G6); switches to a multi-NIC EFA `NetworkInterfaces` block when `EnableEfa=true` (HPC types: hpc6a/hpc7a/hpc6id/hpc8a …) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng.yaml&stackName=pcs-add-cng) |
 | [`add-cng-p5.yaml`](./assets/add-cng-p5.yaml) | P5/P5e/P5en nodes (16/32 EFA interfaces, by type) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p5.yaml&stackName=pcs-add-cng-p5) |
 | [`add-cng-p6-b200.yaml`](./assets/add-cng-p6-b200.yaml) | P6-B200 nodes (8 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b200.yaml&stackName=pcs-add-cng-p6-b200) |
 | [`add-cng-p6-b300.yaml`](./assets/add-cng-p6-b300.yaml) | P6-B300 nodes (16 EFA interfaces) | [<kbd>🚀</kbd>](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/add-cng-p6-b300.yaml&stackName=pcs-add-cng-p6-b300) |

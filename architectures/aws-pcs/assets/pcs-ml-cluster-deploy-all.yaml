@@ -126,7 +126,7 @@ Metadata:
       OnDemandEnableEfa:
         default: "Enable EFA on CPU queue (for HPC instance types)"
       OnDemandEfaInterfaceCount:
-        default: "EFA interface count (1 for hpc6a/c7gn, 2 for hpc8a/hpc7a/hpc6id)"
+        default: "EFA interface count (1 for hpc6a, 2 for hpc8a/hpc7a/hpc6id)"
       OnDemandPlacementGroupName:
         default: "Existing placement group name (empty = auto-create when EFA on)"
       DeployPseriesCNG:
@@ -243,15 +243,19 @@ Parameters:
 
   FSxLustreEnableEfa:
     Description: >-
-      (Optional) Enable EFA + GPUDirect Storage (GDS) on the FSx for Lustre
-      filesystem. Default false. PERSISTENT_2 SSD only -- silently ignored on
-      PERSISTENT_1. EFA-capable clients (CPU CNGs with OnDemandEnableEfa=true,
-      P5/P6 GPU CNGs) get a libfabric/GDS path to Lustre when enabled.
-      **EFA-enabled Lustre has a much higher minimum Capacity than non-EFA**:
-      at PerUnitStorageThroughput=250 the minimum is 19200 GiB (16x the non-EFA
-      default of 1200 GiB). Set Capacity to >= the EFA minimum when enabling
-      this; the full minimum-capacity matrix per throughput tier is in the
-      FSx for Lustre User Guide.
+      (Optional) Enable EFA on the FSx for Lustre filesystem. Default false.
+      PERSISTENT_2 SSD only -- combining with PERSISTENT_1 fails the stack at
+      create time via a Rule (rather than silently ignoring the opt-in). The
+      headline feature is GPUDirect Storage (GDS) for P5/P5e/P5en/P6-B200 GPU
+      clients, which DMAs file data straight into GPU memory (the NVIDIA
+      nvidia-fs/cuFile stack must be installed on the client -- currently a
+      ROADMAP follow-up). EFA-capable CPU CNGs (OnDemandEnableEfa=true) get
+      the EFA transport path to storage as a secondary benefit, useful when a
+      single client is pushing past ~10 GBps. **EFA-enabled Lustre has a
+      much higher minimum Capacity than non-EFA**: at PerUnitStorageThroughput=250
+      the minimum is 19200 GiB (16x the non-EFA default of 1200 GiB). Set
+      Capacity to >= the EFA minimum when enabling this; the full minimum-capacity
+      matrix per throughput tier is in the FSx for Lustre User Guide.
     Type: String
     Default: 'false'
     AllowedValues:
@@ -433,7 +437,7 @@ Parameters:
     Default: 0
     MinValue: 0
 
-  # EFA on the on-demand CPU CNG (for HPC instances like hpc8a/hpc7a/hpc6a/c7gn).
+  # EFA on the on-demand CPU CNG (for HPC instances like hpc8a/hpc7a/hpc6a).
   # GPU CNGs (P5/P6) have their own multi-NIC EFA wiring in the dedicated
   # add-cng-p5/p6-* templates; these knobs do NOT affect those.
   OnDemandEnableEfa:
@@ -441,8 +445,8 @@ Parameters:
     Description: >-
       Enable Elastic Fabric Adapter (EFA) on the on-demand (CPU) compute node
       group. Use with EFA-capable HPC instance types (hpc8a.96xlarge,
-      hpc7a.96xlarge, hpc6a.48xlarge, c7gn.16xlarge, etc.). Default false keeps
-      the standard single-NIC LaunchTemplate. No effect on the P-series GPU CNG.
+      hpc7a.96xlarge, hpc6a.48xlarge, etc.). Default false keeps the
+      standard single-NIC LaunchTemplate. No effect on the P-series GPU CNG.
     Default: 'false'
     AllowedValues:
       - 'true'
@@ -452,7 +456,7 @@ Parameters:
     Type: Number
     Description: >-
       Number of EFA interfaces to attach when OnDemandEnableEfa=true. Use 2 for
-      hpc8a/hpc7a/hpc6id; use 1 for hpc6a/c7gn/c7i.metal. Mismatching this with
+      hpc8a/hpc7a/hpc6id; use 1 for hpc6a/c7i.metal. Mismatching this with
       the instance type's MaximumEfaInterfaces fails at launch. Ignored when
       OnDemandEnableEfa=false.
     Default: 1
@@ -569,6 +573,16 @@ Rules:
         AssertDescription: >-
           SINGLE_AZ_2 / SINGLE_AZ_HA_2 support HomeThroughput of
           160/320/640/1280/2560/3840/5120/7680/10240 MB/s only.
+  # FSx EFA is a PERSISTENT_2-only feature. Fail at the parent stack's create
+  # time -- before any nested resources are launched -- if the user opted in
+  # on PERSISTENT_1, instead of silently dropping the EfaEnabled property.
+  FSxLustreEfaRequiresPersistent2:
+    RuleCondition: !Equals [!Ref FSxLustreEnableEfa, 'true']
+    Assertions:
+      - Assert: !Equals [!Ref LustreDeploymentType, 'PERSISTENT_2']
+        AssertDescription: >-
+          FSxLustreEnableEfa=true requires LustreDeploymentType=PERSISTENT_2
+          (EFA on FSx for Lustre is a PERSISTENT_2-only feature).
 
 Conditions:
   UseLocalTemplates: !Equals [!Ref S3BucketName, 'local']
@@ -739,7 +753,7 @@ Resources:
         MonitoringRole: compute
         PostInstallScriptUrl: !Ref PostInstallScriptUrl
         PostInstallScriptArgs: !Ref PostInstallScriptArgs
-        # EFA on CPU HPC instances (hpc8a/hpc7a/hpc6a/c7gn). Forwarded to add-cng.yaml,
+        # EFA on CPU HPC instances (hpc8a/hpc7a/hpc6a). Forwarded to add-cng.yaml,
         # which auto-creates a per-CNG cluster placement group when EnableEfa=true and
         # PlacementGroupName is empty.
         EnableEfa: !Ref OnDemandEnableEfa

@@ -43,7 +43,7 @@ do **not** assume a single 25.11 GPU run covers everything.
 | 7 | **Template lint** | `aws cloudformation validate-template` on every edited `assets/*.yaml` | Catches structural errors before a deploy round-trip. |
 | 8 | **Pre-baked AMI build path** (when touched) | If `pcs-ready-dlami-with-enroot-pyxis.yaml` or any code it bakes (`scripts/install-enroot-pyxis.sh`) changes: build an AMI per supported `SlurmVersion`, then deploy a cluster with `AmiId=<ami-xxx>` + `PostInstallScriptUrl=""` and run a container job → [Test 8](#test-8-pre-baked-ami-build-standalone-dlami-template) | Independent path: the cluster stack does NOT run Image Builder, so an `install-enroot-pyxis.sh` fix is only in the AMI after a rebuild. The AMI is single-Slurm-version by design — `SlurmVersion` on the DLAMI stack must match the cluster's `SlurmVersion` (the SPANK plugin is ABI-locked). **Skip this row only if neither the AMI build template nor the install script changed.** |
 | 9 | **CPU EFA path** (when touched) | If `add-cng.yaml`'s EFA wiring (`EnableEfa` / `EfaInterfaceCount` / `PlacementGroupName`) or the deploy-all forwarding (`OnDemand{EnableEfa,EfaInterfaceCount,PlacementGroupName}`) changes: deploy with `OnDemandEnableEfa=true` on at least one EFA-capable HPC type (e.g. hpc7a.96xlarge, 2 NICs), verify `lspci`/`fi_info` show the EFA NICs, and run a 2-node OSU `osu_mbw_mr` → [Test 9](#test-9-efa-on-cpu-hpc-instances-hpc6a--hpc7a--hpc8a) | EFA enables a different LaunchTemplate shape (`NetworkInterfaces` block with `InterfaceType=efa`, mutually exclusive with `SecurityGroupIds`); a regression here only shows on a real EFA deploy, not template-validate. **Skip this row only if no EFA-related wiring was touched.** |
-| 10 | **FSx storage health** | Both filesystems mount on every node; read/write sanity; FSx side reports the parameters CFN asked for (deployment type, throughput, capacity, `EfaEnabled` when set) → [Test 10](#test-10-fsx-storage-health) | Mount errors only surface on a fresh first boot (race vs systemd, NFS settle, Lustre client driver mismatch). FSx-side parameter mismatch (e.g. `FSxLustreEnableEfa=true` silently applied as false on PERSISTENT_1) is invisible to template-validate. |
+| 10 | **FSx storage health** | Both filesystems mount on every node; read/write sanity; FSx side reports the parameters CFN asked for (deployment type, throughput, capacity, `EfaEnabled` when set) → [Test 10](#test-10-fsx-storage-health) | Mount errors only surface on a fresh first boot (race vs systemd, NFS settle, Lustre client driver mismatch). FSx-side parameter drift between what CFN asked for and what FSx reports is invisible to template-validate. |
 
 Tests 1–10 below are the per-item how-to. The single-cluster shortcut (one deploy that
 covers monitoring + CPU + one GPU family) is fine for iterating; rows 8 and 9 are
@@ -734,9 +734,10 @@ Expected (default deploy):
 - `DeploymentType` = `PERSISTENT_2` (default; or `PERSISTENT_1` if you set it)
 - `PerUnitStorageThroughput` = 250 (default)
 - `DataCompressionType` = `LZ4` (default)
-- `EfaEnabled` = `False` (default; `True` when `FSxLustreEnableEfa=true` AND
-  `LustreDeploymentType=PERSISTENT_2` — the FSx EFA feature is gated on
-  PERSISTENT_2 by AWS)
+- `EfaEnabled` = `False` (default; `True` when `FSxLustreEnableEfa=true`. EFA on
+  FSx is a PERSISTENT_2-only feature — the prerequisites and deploy-all templates
+  enforce this with a CFN Rule that fails the stack at create time when
+  `FSxLustreEnableEfa=true` is combined with `LustreDeploymentType=PERSISTENT_1`)
 - `MetadataConfiguration.Mode` = `AUTOMATIC` on PERSISTENT_2
 
 For the OpenZFS `/home` filesystem:

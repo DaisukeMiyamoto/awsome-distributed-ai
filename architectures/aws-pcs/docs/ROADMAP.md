@@ -14,6 +14,15 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   Multi-AZ FSx and higher-availability deployments.
 - [ ] 🟢 **Trainium (Trn) validation.** Validate the templates on Trainium instances
   (e.g. trn1/trn2) — node group, EFA/networking, and a sample training run.
+- [ ] 🟡 **Graviton (arm64) CPU CNG support — `hpc7g` / `c7gn`.** EFA-capable arm64
+  HPC instances (`hpc7g.16xlarge`, `c7gn.16xlarge`) are out of scope today: the
+  cluster's default `AmiId` auto-resolves the **x86_64** PCS-Ready DLAMI, so pairing
+  these types with the default AMI fails to launch. An arm64 PCS DLAMI exists at
+  `/aws/service/pcs/ami/dlami-base-ubuntu2404/arm64/latest/ami-id` (verified via
+  `aws ssm get-parameters-by-path`), so this is well-defined as a follow-up: branch
+  `AmiId` resolution by the CNG's instance architecture (or expose an `arm64` toggle),
+  add an arm64 Enroot/Pyxis first-boot path (`scripts/install-enroot-pyxis.sh` is x86
+  only today), and validate hpc7g + c7gn end-to-end on real hardware.
 - [ ] 🟡 **P6e-GB200 / P6e-GB300 (Grace-Blackwell) support.** Add node-group templates for
   the GB200/GB300 NVL instances (e.g. p6e-gb200.36xlarge). These are Grace (arm64) CPUs
   with a different NIC/EFA layout (e.g. p6e-gb200 = 17 network cards) and likely need an
