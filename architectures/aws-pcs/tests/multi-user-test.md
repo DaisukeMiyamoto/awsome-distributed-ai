@@ -121,6 +121,29 @@ srun -N 1 -n 1 -p cpu1 bash -c 'ls -la /home/testuser1'
 sudo -E ldap-add-user.sh testuser2 10002 3000
 ```
 
+### B5a. Duplicate UID / username is rejected
+
+The helper pre-checks the directory and refuses to add a user that
+would share a `uidNumber` with an existing entry (LDAP itself would
+happily allow this — two POSIX users with the same UID become the
+same principal on the shared `/home` and `/fsx`). Same check for the
+username. Regression guard for `ldap-add-user.sh`.
+
+```bash
+# Duplicate uidNumber
+sudo -E ldap-add-user.sh testuser3 10001 3000; echo "EXIT=$?"
+# Expected: EXIT=1, stderr: "uidNumber 10001 is already used by 'testuser1'. Pick a different uid."
+
+# Duplicate username
+sudo -E ldap-add-user.sh testuser1 10099 3000; echo "EXIT=$?"
+# Expected: EXIT=1, stderr: "Username 'testuser1' already exists in the directory."
+
+# Confirm neither survived
+ldapsearch -x -H ldap://localhost -b "ou=People,dc=cluster,dc=internal" \
+  "(|(uid=testuser3)(uidNumber=10099))" uid uidNumber
+# Expected: no matching entries.
+```
+
 ### B6. Delete a user
 
 ```bash
@@ -134,6 +157,91 @@ getent passwd testuser2    # should return nothing
 Verify on compute (after cache expires or forced refresh):
 ```bash
 srun -N 1 -n 1 -p cpu1 bash -c 'sudo sss_cache -E; sleep 2; getent passwd testuser2 || echo "user not found (correct)"'
+```
+
+### B7. Reset a password (`-W -S` prompt path)
+
+```bash
+ldappasswd -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" -W -S \
+  "uid=testuser1,ou=People,dc=cluster,dc=internal"
+# Enter LDAP Password:              (admin password, hidden)
+# New password:                     (new password for testuser1, hidden)
+# Re-enter new password:
+```
+
+Then verify the user can bind with the new password (still on the login
+node):
+```bash
+ldapwhoami -x -H ldap://localhost -D "uid=testuser1,ou=People,dc=cluster,dc=internal" -W
+# Expected: dn:uid=testuser1,ou=People,dc=cluster,dc=internal
+```
+
+### B8. Group create and member add (`-W` prompt path)
+
+```bash
+# Create group
+cat > /tmp/g.ldif <<EOF
+dn: cn=ml-team,ou=Groups,dc=cluster,dc=internal
+objectClass: posixGroup
+cn: ml-team
+gidNumber: 3001
+memberUid: testuser1
+EOF
+ldapadd -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" -W -f /tmp/g.ldif
+
+sudo sss_cache -E && sleep 2
+getent group ml-team
+# Expected: ml-team:*:3001:testuser1
+
+# Add existing user to the group
+cat > /tmp/m.ldif <<EOF
+dn: cn=ml-team,ou=Groups,dc=cluster,dc=internal
+changetype: modify
+add: memberUid
+memberUid: testuser2
+EOF
+ldapmodify -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" -W -f /tmp/m.ldif
+
+sudo sss_cache -E && sleep 2
+id testuser2
+# Expected: uid=10002(testuser2) gid=3000(clusterusers) groups=3000(clusterusers),3001(ml-team)
+
+rm -f /tmp/g.ldif /tmp/m.ldif
+```
+
+### B9. SSH-over-SSM login as LDAP user (end-to-end user flow)
+
+From an operator laptop that has AWS CLI + IAM permissions but no direct
+SSH access to the VPC. Uses the PCS API to derive the login instance ID
+(no reliance on the mutable `Name` tag).
+
+```bash
+# Generate a keypair and install its public key on user creation:
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/pcs-testuser1 -C "testuser1@laptop"
+sudo -E ldap-add-user.sh testuser1 10001 3000 "$(cat ~/.ssh/pcs-testuser1.pub)"
+# (Skip if B1 already created testuser1 without a key — add it with:
+#  ldapmodify or re-run the helper on a fresh directory.)
+
+STACK_NAME=<cluster-stack>
+AWS_REGION=<region>
+LOGIN_INSTANCE_ID=$(aws ec2 describe-instances --region "$AWS_REGION" \
+  --filters "Name=tag:aws:pcs:compute-node-group-id,Values=$(aws pcs list-compute-node-groups --cluster-identifier $(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ClusterId`].OutputValue' --output text) --region "$AWS_REGION" --query 'computeNodeGroups[?name==`login`].id' --output text)" \
+              "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+
+ssh -i ~/.ssh/pcs-testuser1 \
+    -o ProxyCommand="aws ssm start-session --target $LOGIN_INSTANCE_ID --document-name AWS-StartSSHSession --parameters portNumber=%p --region $AWS_REGION" \
+    testuser1@"$LOGIN_INSTANCE_ID" \
+    "id; hostname"
+# Expected: uid=10001(testuser1) ..., login-node hostname.
+
+# Then from that session, submit a job and confirm the shared /home write:
+ssh -tt -i ~/.ssh/pcs-testuser1 \
+    -o ProxyCommand="aws ssm start-session --target $LOGIN_INSTANCE_ID --document-name AWS-StartSSHSession --parameters portNumber=%p --region $AWS_REGION" \
+    testuser1@"$LOGIN_INSTANCE_ID" \
+    "bash -lc 'srun -N 1 -n 1 -p cpu1 bash -c \"id; hostname; touch \\\$HOME/.pcs-verify-ok\"; ls -l \$HOME/.pcs-verify-ok'"
+# Expected: compute reports uid=10001, and .pcs-verify-ok is visible back on the
+# login home (shared OpenZFS).
 ```
 
 ---
@@ -488,3 +596,102 @@ sudo su - charlie -c 'export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; 
 
 Expected: `error: Unable to allocate resources: Invalid account or account/partition combination specified`
 
+---
+
+## Part F — Blog scenario end-to-end
+
+Reproduces [Introducing managed accounting for AWS Parallel Computing
+Service](https://aws.amazon.com/blogs/hpc/introducing-managed-accounting-for-aws-parallel-computing-service/)
+on top of the existing LDAP users, exercising the customer-facing flow
+the blog demonstrates: two project accounts, a per-user cap, `--account=`
+job attribution, quota-based rejection, and the blog's own reporting
+commands. Regression guard for the walkthrough in
+[USER-MANAGEMENT.md §4.1](../docs/USER-MANAGEMENT.md#41-worked-example-project-accounts--per-user-quota--reports).
+
+**Prerequisites**: same as the accounting test (`ManagedAccounting=enabled`
++ `DirectoryService=OpenLDAP-LoginNode`); alice / bob / carol as LDAP
+users (add carol here if only alice/bob exist).
+
+### F1. Project accounts and quota
+
+```bash
+sudo LDAP_ADMIN_PASSWORD="$ADMIN_PW" ldap-add-user.sh carol 10003 3000
+
+sudo sacctmgr -i add account proj_physics   Description="Physics group"
+sudo sacctmgr -i add account proj_chemistry Description="Chemistry group"
+sudo sacctmgr -i add user alice Account=proj_physics
+sudo sacctmgr -i add user bob   Account=proj_physics
+sudo sacctmgr -i add user carol Account=proj_chemistry
+
+sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=6000
+
+sacctmgr show user alice bob carol format=User,Account,DefaultAccount,GrpTRESRunMins
+```
+
+Expected: three users listed under the two project accounts; alice's
+`GrpTRESRunMins` column shows `cpu=6000`.
+
+### F2. Blog-style job submission with `--account=`
+
+```bash
+sudo su - alice -c 'export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; \
+  echo "hostname; id" > /home/alice/smalljob.sh && chmod +x /home/alice/smalljob.sh; \
+  sbatch --account=proj_physics --partition=cpu1 --cpus-per-task=2 --time=2:00 /home/alice/smalljob.sh'
+```
+
+Expected: `Submitted batch job <n>`; `sacct -j <n> -X --format=JobID,User,Account,State` reports `alice / proj_physics / COMPLETED`.
+
+### F3. Quota hold with `safe` enforcement
+
+Only meaningful with `AccountingPolicyEnforcement=associations,limits,safe`.
+Note the `safe` variant *accepts* the submission and holds it pending
+instead of returning `sbatch: error …`; the strict variant
+(`associations,limits` without `safe`) rejects at submit time.
+
+Tighten alice's limit first so a modest job triggers it:
+
+```bash
+sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=60
+```
+
+Submit an over-quota job (8 CPUs × 30 min = 240 CPU-min > 60):
+
+```bash
+sudo su - alice -c 'export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; \
+  sbatch --account=proj_physics --partition=cpu1 --nodes=1 --ntasks-per-node=8 --time=30:00 --wrap="sleep 1000"'
+squeue -u alice -o "%.6i %.10P %.8u %.2t %r"
+```
+
+Expected: `sbatch: Submitted batch job N`, then `squeue` shows the job
+in state `PD` with Reason `AssocGrpCPURunMinutesLimit`. Restore the
+original limit when done: `sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=6000`.
+
+### F4. Blog reporting recipes
+
+```bash
+sacct --starttime=$(date -d "7 days ago" +%Y-%m-%d) \
+  --format="JobID,User,JobName,Partition,Account,AllocCPUS,State,ExitCode"
+
+sreport cluster AccountUtilizationByUser \
+  start=$(date -d "30 days ago" +%Y-%m-%d) end=$(date +%Y-%m-%d) \
+  -t percent format="Accounts,Login,Proper,Used"
+
+sreport user topusage start=$(date -d "30 days ago" +%Y-%m-%d) end=$(date +%Y-%m-%d)
+
+sacct -u alice --starttime=$(date -d "7 days ago" +%Y-%m-%d) \
+  --format="JobID,JobName,State,ExitCode,Start,End,MaxRSS,MaxVMSize,Comment"
+```
+
+Expected: `sacct` returns the jobs submitted above; `sreport` may print
+zero `Used` values for freshly-completed jobs — that's the hourly
+slurmdbd rollup lag, not a failure (see USER-MANAGEMENT §4 note #2).
+
+### F5. Cleanup
+
+```bash
+sudo sacctmgr -i remove user       where User=alice   Account=proj_physics
+sudo sacctmgr -i remove user       where User=bob     Account=proj_physics
+sudo sacctmgr -i remove user       where User=carol   Account=proj_chemistry
+sudo sacctmgr -i remove account    where Account=proj_physics
+sudo sacctmgr -i remove account    where Account=proj_chemistry
+```

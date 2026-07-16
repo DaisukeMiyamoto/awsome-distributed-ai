@@ -49,6 +49,27 @@ if [ -z "${LDAP_ADMIN_PASSWORD:-}" ]; then
     echo
 fi
 
+# Refuse a uidNumber that another entry already owns. LDAP itself won't reject
+# this — uidNumber is not part of the DN — so two users would silently share
+# the same POSIX UID and, on the shared /home + /fsx, become the same principal.
+# Same check for the username (its DN would be unique, but shadowing an
+# existing account is still a mistake). ldapsearch here is unauthenticated
+# and read-only; a lookup failure (LDAP down) still lets us continue and
+# surface the real error at ldapadd time.
+if command -v ldapsearch >/dev/null 2>&1; then
+    if OWNER=$(ldapsearch -x -LLL -H ldap://localhost -b "${LDAP_DOMAIN_SUFFIX}" \
+                 "(uidNumber=${USER_UID})" uid 2>/dev/null | sed -n 's/^uid: //p' | head -1) \
+       && [ -n "${OWNER}" ]; then
+        echo "uidNumber ${USER_UID} is already used by '${OWNER}'. Pick a different uid." >&2
+        exit 1
+    fi
+    if ldapsearch -x -LLL -H ldap://localhost -b "${LDAP_DOMAIN_SUFFIX}" \
+         "(uid=${USERNAME})" dn 2>/dev/null | grep -q .; then
+        echo "Username '${USERNAME}' already exists in the directory." >&2
+        exit 1
+    fi
+fi
+
 # Create user entry
 LDIF=$(cat <<EOF
 dn: uid=${USERNAME},ou=People,${LDAP_DOMAIN_SUFFIX}
