@@ -56,9 +56,9 @@ python3 -m venv $HOME/jupyter-env
 $HOME/jupyter-env/bin/pip install --upgrade pip jupyterlab
 ```
 
-**For GPU work, also install PyTorch now** so the kernel can `import torch`
-without another install roundtrip inside the notebook. The PCS-Ready DLAMI
-ships CUDA 12.x, so pin the matching wheel:
+**To run the GPU-visibility verify cell below**, also install PyTorch here so
+the kernel can `import torch` without another install roundtrip. The
+PCS-Ready DLAMI ships CUDA 12.x, so pin the matching wheel:
 
 ```bash
 $HOME/jupyter-env/bin/pip install torch --index-url https://download.pytorch.org/whl/cu124
@@ -129,8 +129,7 @@ sbatch -p cpu1 jupyter.sbatch
 sbatch -p gpu-g6 --gres=gpu:1 jupyter.sbatch
 ```
 
-For GPU work, the venv already has `torch` from Step 1; the GPU
-allocation behaviour is detailed in [Using GPUs](#using-gpus) below.
+GPU allocation behaviour is detailed in [Using GPUs](#using-gpus) below.
 
 The first submission on an idle queue waits ~2–3 minutes for the node to
 scale up (8–12 minutes if the node is also running its first-boot
