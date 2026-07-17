@@ -1,32 +1,20 @@
 # IAM Permissions Guide
 
 The cluster distinguishes **two human roles** with very different
-responsibilities, and ships a ready-to-deploy IAM policy stack for each:
+responsibilities. Each ships a CloudFormation template that creates the
+customer-managed IAM policy and an IAM group with it attached (optionally
+adding existing IAM users at deploy time).
 
-| Role | Who | What they can do | Template |
-|---|---|---|---|
-| **Cluster admin** | The person who deploys/updates/deletes the cluster | Full CRUD on the infrastructure: CloudFormation, PCS, EC2 (VPC/SG/launch templates/placement groups/NAT/EIP), FSx, scoped IAM, SSM Parameter Store, KMS, Secrets Manager, and (optionally) Image Builder | [`cluster-admin-iam.yaml`](../assets/cluster-admin-iam.yaml) |
-| **Cluster user** | Engineers who just run jobs on an existing cluster | SSM session **to the login node only**, port-forward Grafana, read the Grafana password, read PCS cluster/queue status. **Cannot create, modify, or delete anything**, and cannot open shells on compute nodes | [`cluster-user-iam.yaml`](../assets/cluster-user-iam.yaml) |
-
-Splitting the roles means the deployer's broad permissions never have to be
-handed to every engineer who just wants to `srun`, and the user role can be
-given out widely — it can't accidentally delete the cluster or get a shell on a
-compute node.
+| Role | Can do | Template · Launch |
+|---|---|---|
+| **Cluster admin** — deploys/updates/deletes clusters | Full CRUD on CloudFormation, PCS, EC2 (VPC/SG/launch templates/placement groups/NAT/EIP), FSx, scoped IAM, SSM Parameter Store, KMS, Secrets Manager, and (optionally) Image Builder. **Broad — do not hand to every engineer.** | [`cluster-admin-iam.yaml`](../assets/cluster-admin-iam.yaml) · [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-admin-iam.yaml&stackName=pcs-cluster-admins) |
+| **Cluster user** — engineers running jobs on an existing cluster | SSM session to the **login node only**, port-forward Grafana, read the Grafana password, read PCS cluster/queue status. Cannot create, modify, or delete anything, and cannot shell into compute nodes. **Safe to hand out widely.** | [`cluster-user-iam.yaml`](../assets/cluster-user-iam.yaml) · [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-user-iam.yaml&stackName=pcs-cluster-users) |
 
 ---
 
 ## Deploying the policies
 
-Each template creates the customer-managed IAM policies, an IAM group with them
-attached, and (optionally) adds existing IAM users to that group. Deploy both
-as CloudFormation stacks:
-
-| Stack | Creates | Deploy |
-|---|---|---|
-| **Cluster admin** | `<stack>-PCSClusterAdmin-core` (always) + `<stack>-PCSClusterAdmin-imagebuilder` (if opted in) managed policies + an IAM group | [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-admin-iam.yaml&stackName=pcs-cluster-admins) |
-| **Cluster user** | `<stack>-PCSClusterUser` managed policy + an IAM group | [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-user-iam.yaml&stackName=pcs-cluster-users) |
-
-Or from the CLI (use `--template-body` against a local checkout for a pre-merge
+From the CLI (use `--template-body` against a local checkout for a pre-merge
 sandbox test):
 
 ```bash
@@ -49,11 +37,9 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
 ```
 
-Both templates take an `AttachUsers` parameter (comma-separated existing IAM
-user names) so you can wire up group membership at deploy time, or leave it
-empty and add users to the group later. The admin template's
-`AttachImageBuilderPolicy` defaults to `false`; set it `true` only when the
-admin will also deploy the standalone DLAMI builder
+`AttachUsers` is optional — leave it empty and add users to the group later
+via IAM console/CLI. `AttachImageBuilderPolicy` defaults to `false`; enable
+it only if the admin will also deploy the standalone DLAMI builder
 (`pcs-ready-dlami-with-enroot-pyxis.yaml`).
 
 ### What the cluster user can do once attached
@@ -77,9 +63,7 @@ aws ssm start-session --target "$LOGIN_INSTANCE_ID" --region "$AWS_REGION" \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["443"],"localPortNumber":["8443"]}'
 
-# Read the Grafana admin password (CLUSTER_ID is resolved by CFN Outputs above; look it up if needed)
-CLUSTER_ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`ClusterId`].OutputValue' --output text)
+# Read the Grafana admin password
 aws ssm get-parameter --name "/pcs/${CLUSTER_ID}/grafana/admin-password" --region "$AWS_REGION" \
   --with-decryption --query 'Parameter.Value' --output text
 ```
@@ -95,19 +79,11 @@ plus the extra permissions the all-in-one template needs because it provisions
 VPC + FSx + IAM roles itself (the AWS reference policy assumes those already
 exist). Review and tighten before production use.
 
-**Login-node access is scoped by the `Name` tag, to one stack.** The user
-policy conditions `ssm:StartSession` on `ssm:resourceTag/Name` **equalling**
-`<ClusterStackName>-login` (exact match, no wildcards). PCS does not emit a
-dedicated "is this a login node" tag, so the templates set
-`Name=<ClusterName>-<cng-name>` on every instance — the deploy-all template
-passes `${AWS::StackName}` as ClusterName, so the login CNG's default
-`CngName=login` yields `Name=<StackName>-login`, and compute CNGs get
-`<StackName>-cpu1`, `<StackName>-gpu-p5`, etc. That means one deploy of
-`cluster-user-iam.yaml` grants access to **exactly one cluster**; deploy the
-template again with a different `ClusterStackName` for each additional
-cluster you want the group to reach. **The `Name` tag is operator-mutable**:
-if you re-tag a login node, update the policy condition to match (or fork
-the templates to add a dedicated `IsLoginNode=true` tag and key off that).
+**Login-node access is scoped to one stack.** The user policy conditions
+`ssm:StartSession` on `ssm:resourceTag/Name` equalling
+`<ClusterStackName>-login` (exact match, no wildcards) — the Name tag every
+login node carries by default. The tag is operator-mutable; if you re-tag
+the login node, update the policy condition to match.
 
 **Combined CRUD is intentional, not a mistake.** The admin policy covers
 create + update + delete in one policy because (1) CFN rollback on a failed
@@ -117,22 +93,18 @@ Describe across every service. If you want a read-only variant, reduce the same
 actions to `*:Describe*` / `*:Get*` / `*:List*` for an auditor role.
 
 **The admin policy is split into core + Image Builder** because the combined
-document (~7.4 KB) exceeds the IAM 6,144-character per-policy limit. The
-~5.8 KB core covers a normal deploy; the ~1.7 KB Image Builder add-on is only
-needed for the standalone DLAMI builder. The CFN template attaches both to the
-group when `AttachImageBuilderPolicy=true`.
+document exceeds IAM's 6,144-character per-policy limit. The core covers a
+normal deploy; the Image Builder add-on is only needed for the standalone
+DLAMI builder.
 
-**There is no `AmazonPCSFullAccess` managed policy** as of January 2026 — AWS
-publishes only `AWSPCSComputeNodePolicy` (for compute instances) and
-`AWSPCSServiceRolePolicy` (the service-linked role). The PCS portion of the
-admin policy must therefore be customer-managed.
-
-**Pairing with AWS-managed policies.** For a smaller customer-managed surface
-you can attach AWS-managed policies for parts of the stack and trim the matching
-statements: `AWSCloudFormationFullAccess`, `AmazonFSxFullAccess`,
-`AWSImageBuilderFullAccess` are reasonable fits. Avoid `AmazonEC2FullAccess` —
-it is materially overprivileged (e.g. EBS public-share); prefer the
-customer-managed EC2 statements in the template.
+**Pairing with AWS-managed policies.** For a smaller customer-managed
+surface, attach AWS-managed policies for parts of the stack and trim the
+matching statements: `AWSCloudFormationFullAccess`, `AmazonFSxFullAccess`,
+`AWSImageBuilderFullAccess` are reasonable fits. Avoid
+`AmazonEC2FullAccess` — it is materially overprivileged (e.g. EBS
+public-share); prefer the customer-managed EC2 statements in the template.
+There is no `AmazonPCSFullAccess`, so the PCS portion has to stay
+customer-managed.
 
 ### Not covered by these policies
 
@@ -166,13 +138,12 @@ The same approach works for the user policy — exercise the user workflows
 
 ## Verifying the policies
 
-To confirm the admin policy can deploy a cluster end-to-end and the user policy is
-correctly constrained (login-only SSM, no LDAP-password access), see the reproducible
-procedure in [tests/iam-test.md](../tests/iam-test.md).
+To confirm the admin policy can deploy a cluster end-to-end and the user
+policy is correctly constrained (login-only SSM, no LDAP-password access),
+see the reproducible procedure in [tests/iam-test.md](../tests/iam-test.md).
 
-> **Note on the template-source bucket.** The admin policy grants no `s3:GetObject`,
-> because the production templates live in the public `awsome-distributed-ai`
-> bucket (CFN fetches `--template-url` anonymously). If you host the templates in
-> a **private** bucket, the deploying principal additionally needs `s3:GetObject`
-> on that bucket — grant it separately; it is intentionally out of the
-> cluster-admin policy.
+> **Private template bucket:** the admin policy grants no `s3:GetObject`
+> because the production templates live in the public
+> `awsome-distributed-ai` bucket (CFN fetches `--template-url`
+> anonymously). If you host the templates in a private bucket, grant
+> `s3:GetObject` on that bucket separately.
