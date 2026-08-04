@@ -30,17 +30,6 @@ plus the extra permissions the all-in-one template needs because it provisions
 VPC + FSx + IAM roles itself (the AWS reference policy assumes those already
 exist). Review and tighten before production use.
 
-**Login-node access is scoped to one stack.** The user policy conditions
-`ssm:StartSession` on `ssm:resourceTag/Name` equalling
-`<ClusterStackName>-login` (exact match, no wildcards) — the Name tag every
-login node carries by default. The tag is operator-mutable; if you re-tag
-the login node, update the policy condition to match.
-
-**The admin policy is split into core + Image Builder** because the combined
-document exceeds IAM's 6,144-character per-policy limit. The core covers a
-normal deploy; the Image Builder add-on is only needed for the standalone
-DLAMI builder.
-
 **Pairing with AWS-managed policies.** For a smaller customer-managed
 surface, attach AWS-managed policies for parts of the stack and trim the
 matching statements: `AWSCloudFormationFullAccess`, `AmazonFSxFullAccess`,
@@ -49,11 +38,6 @@ matching statements: `AWSCloudFormationFullAccess`, `AmazonFSxFullAccess`,
 public-share); prefer the customer-managed EC2 statements in the template.
 There is no `AmazonPCSFullAccess`, so the PCS portion has to stay
 customer-managed.
-
-**Private template bucket.** The admin policy grants no `s3:GetObject`
-because the production templates live in the public `awsome-distributed-ai`
-bucket (CFN fetches `--template-url` anonymously). If you host the templates
-in a private bucket, grant `s3:GetObject` on that bucket separately.
 
 **Not covered by these policies:**
 - The compute instance role (passed to EC2 by `cluster.yaml`) — use the
