@@ -337,6 +337,10 @@ lines.) To submit it as a batch job instead:
 sbatch --partition=cpu1 --nodes=2 --wrap='srun bash -c "hostname"'
 ```
 
+> With `AccountingPolicyEnforcement` set, the submitter must be registered
+> in Slurm accounting or the job is rejected — see
+> [docs/USER-MANAGEMENT.md §4](./docs/USER-MANAGEMENT.md#4-slurm-accounting).
+
 ### Example B — multi-node GPU NCCL test (needs a GPU queue)
 
 A 2-node `all_reduce_perf` is the quickest GPU end-to-end check (GPU queue + Pyxis
