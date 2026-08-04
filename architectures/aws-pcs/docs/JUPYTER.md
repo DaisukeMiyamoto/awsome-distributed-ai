@@ -45,6 +45,9 @@ Compute node — Jupyter server, launched as an sbatch job
 - **Multi-user clusters:** your `$HOME` must exist before the first job — log
   in to the login node (SSH or SSM) once so `pam_mkhomedir` creates it. Slurm
   jobs do not create home directories.
+- **Do not run Jupyter on the login node.** It has no GPUs and is shared with
+  the monitoring stack; always launch the server as a Slurm job on a compute
+  node, as Step 2 does.
 
 ## Step 1 — one-time: create a Jupyter environment on `/home`
 
@@ -223,6 +226,24 @@ costs nothing.
 You launch a GPU session with the same script and the `sbatch -p <gpu-queue>
 --gres=gpu:N` form shown in Step 2 — nothing else changes.
 
+### How the GPU allocation behaves
+
+- **`--gres=gpu:N` is the only knob.** Slurm sets `CUDA_VISIBLE_DEVICES`
+  accordingly and PyTorch sees exactly those GPUs. Request only what you
+  need — the remaining GPUs on a multi-GPU node stay available for other
+  jobs.
+- **Multi-GPU works inside one notebook.** All allocated GPUs are visible
+  to the kernel, so `DataParallel` / FSDP / `accelerate` run as usual.
+- **Sizing.** `--gres=gpu:1` is plenty for most interactive exploration.
+  Keep `--time` tight — an idle notebook holds its GPUs until the job
+  ends; prefer a batch job for multi-hour training.
+- **Multi-NIC GPU nodes (P5/P6) work as-is.** `hostname -I` returns one
+  address per EFA NIC; the script binds to the first, which is
+  same-VPC-reachable from the login node.
+- **Containerized kernels (optional).** Wrap `jupyter lab` in
+  `srun --container-image=<sqsh> --container-mounts=/fsx,$HOME …` to run
+  the notebook inside a Pyxis-imported image (see [README §7](../README.md#7-running-a-job)).
+
 ### Verify GPU visibility from the notebook
 
 Paste this into a new notebook cell after the kernel comes up. It confirms
@@ -250,56 +271,7 @@ if torch.cuda.is_available():
 ```
 
 Expected: `torch.cuda.device_count()` **equals the `--gres=gpu:N` you
-requested**. If the `nvidia-smi` in a shell cell shows more devices than
+requested**. If `nvidia-smi` shows more devices than
 `torch.cuda.device_count()`, Slurm's cgroup isolation is not restricting
 them — file a bug against the CNG configuration.
 
-### How the GPU allocation behaves
-
-- **Slurm enforces the `--gres` count** (the verify cell above proves it):
-  the job gets `CUDA_VISIBLE_DEVICES` set to its allocated GPUs (e.g. `0,1`
-  for `--gres=gpu:2` on a 4-GPU g6.12xlarge), so PyTorch sees exactly the
-  requested GPUs. GPU node groups configure gres automatically (e.g.
-  `Gres=gpu:L4:4`; check with `scontrol show node <node>`).
-- **Multi-GPU works inside one notebook.** All allocated GPUs are visible to
-  the kernel, so `DataParallel` / FSDP / `accelerate` with
-  `num_processes=<gres count>` run as usual. Leave GPUs you don't need
-  unrequested — on multi-GPU nodes Slurm can schedule other jobs (another
-  user's Jupyter, batch training) onto the remaining GPUs.
-- **Sizing:** request only what you interactively need (`--gres=gpu:1` is
-  plenty for most exploration) and keep `--time` tight — an idle notebook
-  holds its GPUs until the job ends. For multi-hour *training*, prefer a
-  batch job over a notebook so the GPUs free up when the run finishes.
-  (Remember `HF_HOME=/fsx/$USER/.hf-cache` from Step 1 for model downloads.)
-- **Multi-NIC GPU nodes (P5/P6) work as-is.** On these instances `hostname -I`
-  returns dozens of addresses (one per EFA NIC). The script binds Jupyter to
-  the first entry, which in practice is the primary interface's IP (verified
-  on p5.48xlarge, 32 NICs) — and any entry is same-VPC-reachable from the
-  login node, so the port-forward path works regardless. The kernel saw all
-  8 H100s with `--gres=gpu:8`.
-- **Containerized kernels (optional):** to use an NGC image as the notebook
-  environment instead of a venv, wrap the server in Pyxis:
-  `srun --container-image=<image> --container-mounts=/fsx,$HOME …` around the
-  `jupyter lab` command inside the job. Import large images once to
-  `/fsx/*.sqsh` (see the [README §7](../README.md#7-running-a-job) enroot
-  note) and pass the `.sqsh` path as the image.
-
-## Notes
-
-- **Multi-user:** each user runs their own server job under their own UID; the
-  job-ID-derived port makes same-node collisions unlikely (see the comment in
-  the script). Keep tokens in `$HOME` (created mode 600 by the script) — treat
-  the token like a password to your account, since the SSM/IAM layer alone
-  does not distinguish cluster users.
-- **Multiple clusters in one account:** the `Name=*login` tag filter in the
-  connect snippet matches the login node of *every* PCS cluster that follows
-  the naming convention — add a `"Name=tag:ClusterName,Values=<your-stack>"`
-  filter to pin it when you run more than one.
-- **Alternative when `SSHAccessCidr` is set:** a plain SSH tunnel also works —
-  `ssh -L 8888:<compute-node-ip>:<port> <user>@<login-public-ip>` — useful for
-  users who cannot install the Session Manager plugin.
-- **Do not run Jupyter on the login node.** It has no GPUs, and it is shared
-  by every user (and hosts the monitoring stack).
-- **Scripts on `/fsx` can't be exec'd directly** (Lustre blocks `execve` on
-  some paths) — keep the sbatch file under `$HOME`, or invoke via
-  `bash /fsx/script.sh`.
