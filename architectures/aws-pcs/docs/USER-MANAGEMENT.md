@@ -112,6 +112,10 @@ aws ssm get-parameter --region "$AWS_REGION" --with-decryption --name "/pcs/$CLU
 > ```bash
 > sudo cat /home/ldap-db/.admin-password
 > ```
+>
+> If a later `ldap*` command replies *"Invalid credentials"*, the password
+> was typed wrong at the `-W` prompt — re-run the command to re-prompt,
+> and re-fetch from SSM here if you've lost it.
 
 ### 2.2 Add your first user
 
@@ -270,17 +274,26 @@ prompt).
 
 ### 3.1 Add a user
 
-Same `ldap-add-user.sh` invocation as in [§2.2](#22-add-your-first-user);
-pick the next unused `uidNumber` (see [§3.2 List users](#32-list-users)
-for what's in use, or [§8 UID / GID conventions](#8-uid--gid-conventions)
-for the allocation policy). The script refuses a `uidNumber` or username
-that already exists — two users sharing a UID would collapse into the
-same POSIX principal on the shared `/home` and `/fsx`.
+Same `ldap-add-user.sh` invocation as in [§2.2](#22-add-your-first-user).
+Pick the next unused `uidNumber`; [§3.2 List users](#32-list-users) shows
+what's already in use. The script refuses a `uidNumber` or username that
+already exists — two users sharing a UID would collapse into the same
+POSIX principal on the shared `/home` and `/fsx`.
 
 ```bash
 sudo /usr/local/bin/ldap-add-user.sh <username> <uid> 3000 "<ssh-pub-key>"
 # LDAP admin password: <paste from SSM — input is hidden>
 ```
+
+UID / GID allocation policy for this cluster:
+
+| Range | Purpose |
+|---|---|
+| 0–999 | System users (do not use) |
+| 1000 | `ubuntu` (DLAMI default user) |
+| 3000 | `clusterusers` group (default GID for new users) |
+| 3001+ | Additional groups |
+| 10001–59999 | LDAP user UIDs |
 
 ### 3.2 List users
 
@@ -504,14 +517,7 @@ sudo journalctl -u slapd -n 20
 cat /var/log/directory-setup.log
 ```
 
-### 5.3 "Invalid credentials" from `ldap*` commands
-
-You typed the wrong admin password at the `-W` prompt. Re-run the
-command; it will prompt again. Re-fetch the password with the recipe in
-[§2.1](#21-recover-the-ldap-admin-password) — SSM is the source of truth
-and `/home/ldap-db/.admin-password` is the fallback.
-
-### 5.4 Home directory not created
+### 5.3 Home directory not created
 
 `/home/<user>` is auto-created by `pam_mkhomedir` on first **interactive
 login** (SSH or `su -`). Slurm jobs do not create it, so a user who has
@@ -525,7 +531,7 @@ sudo chown alice:clusterusers /home/alice
 sudo chmod 700 /home/alice
 ```
 
-### 5.5 New compute node doesn't resolve users
+### 5.4 New compute node doesn't resolve users
 
 If the node was launched **before** `DirectoryService` was enabled
 (e.g. before a stack update), its LaunchTemplate has no SSSD client
@@ -535,81 +541,35 @@ setup. Terminate the node; PCS replaces it with a new one that has SSSD.
 
 ## 6. How it works
 
+- **`slapd` runs on the login node**, DB on shared `/home/ldap-db/`
+  (OpenZFS NFS) so it survives login-node restart or replacement.
+- **Every node runs SSSD** (server-side on login, client on compute) and
+  caches LDAP replies. `sudo sss_cache -E` refreshes.
+- **Compute nodes discover the login IP by EC2 tag** at first boot,
+  filtering on `pcs-cluster-id=<this cluster>` + `directory-role=server`,
+  then set `ldap_uri` in `/etc/sssd/sssd.conf`. Requires
+  `ec2:DescribeInstances` on the compute instance role (the cluster
+  IAM role grants it).
+- **Home directories are on shared `/home`**, auto-created by
+  `pam_mkhomedir` at first interactive login.
+- **Slurm launches jobs by numeric UID**, so a job runs even if a
+  compute node can't currently name-resolve the user (SSSD cold cache,
+  brief LDAP outage).
+
+> ⚠️ **Single login node only.** `OpenLDAP-LoginNode` runs slapd on one
+> node; keep the login CNG at `MinCount=MaxCount=1` while the directory
+> is enabled. Two login nodes would open the same MDB from two
+> processes (corruption risk). If HA is needed, plan for AWS Simple AD /
+> Managed AD — see [ROADMAP.md](./ROADMAP.md).
+
+**After a login-node replacement**, the new instance re-tags itself
+`directory-role=server` and re-attaches the same MDB. Newly-booting
+compute nodes discover the new IP; already-running compute nodes still
+hold the old `ldap_uri` and need a one-shot fix:
+
+```bash
+srun -N <n> -n <n> bash -c 'sudo sed -i "s#ldap_uri = .*#ldap_uri = ldap://<new-login-ip>#" /etc/sssd/sssd.conf && sudo sss_cache -E && sudo systemctl restart sssd'
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Login Node                                              │
-│  ┌──────────┐     ┌──────────┐     ┌──────────────┐    │
-│  │  slapd   │────►│  SSSD    │────►│  NSS / PAM   │    │
-│  │ (OpenLDAP│     │  (cache) │     │  (getent,    │    │
-│  │  server) │     │          │     │   login, su) │    │
-│  └──────────┘     └──────────┘     └──────────────┘    │
-│  DB: /home/ldap-db/ (shared OpenZFS)                    │
-└───────┼──────────────────────────────────────────────────┘
-        │ ldap://login-ip:389
-        ▼
-┌─────────────────────────────────────────────────────────┐
-│  Compute Node                                            │
-│  ┌──────────┐     ┌──────────────┐                      │
-│  │  SSSD    │────►│  NSS / PAM   │                      │
-│  │ (client) │     │              │                      │
-│  └──────────┘     └──────────────┘                      │
-└─────────────────────────────────────────────────────────┘
-```
-
-- Users live in LDAP on the login node.
-- The DB is on shared `/home` (OpenZFS NFS) — survives login-node
-  restart or replacement.
-- Every node runs SSSD, which caches LDAP replies. `sss_cache -E`
-  refreshes.
-- Home directories are on shared `/home` (auto-created on first
-  interactive login).
-- Slurm sees LDAP users transparently — no Slurm-side config needed for
-  user resolution.
-
-> ⚠️ **Single login node only.** `OpenLDAP-LoginNode` runs slapd on
-> **one** node; keep the login CNG at `MinCount=MaxCount=1` while the
-> directory is enabled. Two login nodes would give clients an ambiguous
-> server and open the same MDB from two processes (corruption risk).
-> Use the planned `SimpleAD` / `ManagedAD` `DirectoryService` options
-> for HA — see [§10 Upgrading](#10-upgrading-to-aws-simple-ad-future).
-
-### How a compute node finds the LDAP server (tag-based discovery)
-
-Not obvious — spelled out here because it drives several operational
-edge cases.
-
-1. Login CNG tags itself `directory-role=server` + `pcs-cluster-id=<id>`;
-   compute CNGs tag themselves `directory-role=client`. This
-   `directory-role` tag is dedicated to the directory feature —
-   deliberately separate from the monitoring stack's `monitoring-role`.
-2. On first boot each compute node runs `setup-directory.sh client`,
-   which calls `aws ec2 describe-instances` filtering for
-   `pcs-cluster-id=<my cluster>` + `directory-role=server` +
-   `instance-state=running`, and reads the matching instance's
-   private IP. `pcs-cluster-id` scopes lookup to **this** cluster only.
-3. The private IP becomes SSSD's `ldap_uri` (`ldap://<login-ip>`); SSSD
-   on the compute node resolves users from the login's slapd.
-
-Implications:
-
-- **Compute nodes need `ec2:DescribeInstances`** in their instance role
-  (the cluster IAM role grants it). Without it, discovery fails silently
-  — check `/var/log/directory-setup.log` for
-  `could not discover directory server IP`.
-- **Login must be running before a compute node boots.** Normal deploy
-  order gives you this; a compute node that scales up later simply
-  queries the already-running server.
-- **After a login-node replacement**, the new instance re-tags itself
-  `directory-role=server` and re-attaches to the same `/home/ldap-db`.
-  The admin password is preserved (SSM). **Already-running compute
-  nodes**, though, keep the old cached `ldap_uri`; cached users still
-  resolve, but new/uncached lookups degrade. Fix by rebooting SSSD:
-  ```bash
-  srun -N <n> -n <n> bash -c 'sudo sed -i "s#ldap_uri = .*#ldap_uri = ldap://<new-login-ip>#" /etc/sssd/sssd.conf && sudo sss_cache -E && sudo systemctl restart sssd'
-  ```
-  A stable endpoint that removes this step is in
-  [ROADMAP.md](./ROADMAP.md) ("Stable LDAP endpoint across login-node
-  replacement").
 
 ---
 
@@ -637,51 +597,3 @@ sudo chown -R openldap:openldap /home/ldap-db
 sudo systemctl start slapd
 ```
 
----
-
-## 8. UID / GID conventions
-
-| Range | Purpose |
-|---|---|
-| 0–999 | System users (do not use) |
-| 1000 | `ubuntu` (DLAMI default user) |
-| 3000 | `clusterusers` group (default GID for new users) |
-| 3001+ | Additional groups |
-| 10001–59999 | LDAP user UIDs |
-
-Always specify UIDs explicitly (as [§2.2](#22-add-your-first-user)
-shows). This keeps ownership consistent across all nodes and shared
-filesystems.
-
----
-
-## 9. Template structure
-
-```
-deploy-all.yaml
-├─► cluster.yaml         (IAM role with ssm:PutParameter for /pcs/<id>/ldap/*)
-├─► add-cng.yaml (login) → DirectoryRole=server → setup-directory.sh server
-│                           (installs slapd, configures local SSSD)
-└─► add-cng.yaml (compute) → DirectoryRole=client → setup-directory.sh client
-                              (installs SSSD, discovers login IP via tags)
-```
-
----
-
-## 10. Upgrading to AWS Simple AD (future)
-
-If you outgrow OpenLDAP (need HA, >50 users, Kerberos), the
-`DirectoryService` parameter is designed to extend:
-
-```yaml
-DirectoryService: SimpleAD    # future AllowedValue
-```
-
-Migration path (planned):
-1. Export users: `slapcat > users.ldif`
-2. Deploy Simple AD (separate stack, 2 AZs)
-3. Import users
-4. Redeploy cluster with `DirectoryService=SimpleAD`
-5. Decommission slapd
-
-Tracked in [ROADMAP.md](./ROADMAP.md).
