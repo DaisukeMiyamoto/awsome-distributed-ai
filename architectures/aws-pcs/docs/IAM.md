@@ -8,7 +8,7 @@ adding existing IAM users at deploy time).
 | Role | Launch |
 |---|---|
 | **Cluster admin** — deploys/updates/deletes clusters. Full CRUD on CloudFormation, PCS, EC2 (VPC/SG/launch templates/placement groups/NAT/EIP), FSx, scoped IAM, SSM Parameter Store, KMS, Secrets Manager, and (optionally) Image Builder. **Broad — do not hand to every engineer.** | [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-admin-iam.yaml&stackName=pcs-cluster-admins) |
-| **Cluster user** — engineers running jobs on an existing cluster. SSM session to the **login node only**, port-forward Grafana, read the Grafana password, read PCS cluster/queue status. Cannot create, modify, or delete anything, and cannot shell into compute nodes. **Safe to hand out widely.** | [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-user-iam.yaml&stackName=pcs-cluster-users) |
+| **Cluster user** — engineers running jobs on an existing cluster. SSM session to the **login node only**, port-forward Grafana, read the Grafana password, read PCS cluster/queue status. **No AWS-API mutations** (cannot create, modify, or delete cluster resources) and **no compute-node sessions**. The login-node SSM shell it grants runs as `ssm-user` with passwordless sudo (SSM default), so on the login node it is effectively root — meaning read access to shared `/home`, Slurm accounting, and the instance role's `/pcs/<id>/ldap/*` SSM secret; treat it as trusted-operator-scope, not arbitrary-viewer-scope. | [![Launch](../images/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateUrl=https://awsome-distributed-ai.s3.amazonaws.com/templates/aws-pcs/cluster-user-iam.yaml&stackName=pcs-cluster-users) |
 
 Both templates take an optional `AttachUsers` parameter (comma-separated
 existing IAM user names) so you can wire up group membership at deploy time,
@@ -17,7 +17,12 @@ or add users later via the IAM console. The cluster-admin template's
 admin will also deploy the standalone DLAMI builder
 (`pcs-ready-dlami-with-enroot-pyxis.yaml`). The cluster-user template
 requires `ClusterStackName` and scopes SSM session access to that one
-cluster's login node — deploy one stack of it per cluster.
+cluster's login node — deploy one stack of it per cluster. That scoping
+keys on the EC2 `Name` tag (`ssm:resourceTag/Name = <ClusterStackName>-login`),
+which is operator-mutable: re-tagging a login node changes who can reach it,
+and if another instance in the account happens to carry a matching `Name`
+tag it would also satisfy the condition. Treat `Name` as part of this
+policy's trust surface.
 
 ---
 

@@ -144,22 +144,7 @@ ldapsearch -x -H ldap://localhost -b "ou=People,dc=cluster,dc=internal" \
 # Expected: no matching entries.
 ```
 
-### B6. Delete a user
-
-```bash
-ldapdelete -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" \
-  -w "$LDAP_ADMIN_PASSWORD" "uid=testuser2,ou=People,dc=cluster,dc=internal"
-
-# Verify deleted
-getent passwd testuser2    # should return nothing
-```
-
-Verify on compute (after cache expires or forced refresh):
-```bash
-srun -N 1 -n 1 -p cpu1 bash -c 'sudo sss_cache -E; sleep 2; getent passwd testuser2 || echo "user not found (correct)"'
-```
-
-### B7. Reset a password (`-W -S` prompt path)
+### B6. Reset a password (`-W -S` prompt path)
 
 ```bash
 ldappasswd -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" -W -S \
@@ -176,10 +161,10 @@ ldapwhoami -x -H ldap://localhost -D "uid=testuser1,ou=People,dc=cluster,dc=inte
 # Expected: dn:uid=testuser1,ou=People,dc=cluster,dc=internal
 ```
 
-### B8. Group create and member add (`-W` prompt path)
+### B7. Group create and member add (`-W` prompt path)
 
 ```bash
-# Create group
+# Create group with testuser1 as an initial member
 cat > /tmp/g.ldif <<EOF
 dn: cn=ml-team,ou=Groups,dc=cluster,dc=internal
 objectClass: posixGroup
@@ -193,7 +178,7 @@ sudo sss_cache -E && sleep 2
 getent group ml-team
 # Expected: ml-team:*:3001:testuser1
 
-# Add existing user to the group
+# Add testuser2 (still present at this point — B9 deletes it later) to the group
 cat > /tmp/m.ldif <<EOF
 dn: cn=ml-team,ou=Groups,dc=cluster,dc=internal
 changetype: modify
@@ -209,19 +194,35 @@ id testuser2
 rm -f /tmp/g.ldif /tmp/m.ldif
 ```
 
-### B9. SSH-over-SSM login as LDAP user (end-to-end user flow)
+### B8. SSH-over-SSM login as LDAP user (end-to-end user flow)
 
-From an operator laptop that has AWS CLI + IAM permissions but no direct
-SSH access to the VPC. Uses the PCS API to derive the login instance ID
-(no reliance on the mutable `Name` tag).
+End-to-end path from an operator laptop that has AWS CLI + IAM permissions
+but no direct SSH access to the VPC.
+
+**1. On the laptop — generate a keypair:**
 
 ```bash
-# Generate a keypair and install its public key on user creation:
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/pcs-testuser1 -C "testuser1@laptop"
-sudo -E ldap-add-user.sh testuser1 10001 3000 "$(cat ~/.ssh/pcs-testuser1.pub)"
-# (Skip if B1 already created testuser1 without a key — add it with:
-#  ldapmodify or re-run the helper on a fresh directory.)
+cat ~/.ssh/pcs-testuser1.pub
+```
 
+**2. On the login node — install the public key for testuser1.** B1
+already created testuser1 without a key, so append the pubkey to the
+existing shared-home `authorized_keys` (this is where the helper would
+put it too — it does not store keys in LDAP):
+
+```bash
+PUBKEY='<paste the ssh-ed25519 line from step 1>'
+sudo install -d -m 700 -o testuser1 -g 3000 /home/testuser1/.ssh
+echo "$PUBKEY" | sudo tee -a /home/testuser1/.ssh/authorized_keys >/dev/null
+sudo chown testuser1:3000 /home/testuser1/.ssh/authorized_keys
+sudo chmod 600 /home/testuser1/.ssh/authorized_keys
+```
+
+**3. Back on the laptop — resolve the login instance ID and connect over
+SSM.** Uses the PCS API (no reliance on the mutable `Name` tag):
+
+```bash
 STACK_NAME=<cluster-stack>
 AWS_REGION=<region>
 LOGIN_INSTANCE_ID=$(aws ec2 describe-instances --region "$AWS_REGION" \
@@ -235,13 +236,28 @@ ssh -i ~/.ssh/pcs-testuser1 \
     "id; hostname"
 # Expected: uid=10001(testuser1) ..., login-node hostname.
 
-# Then from that session, submit a job and confirm the shared /home write:
+# Submit a job and confirm the shared /home write:
 ssh -tt -i ~/.ssh/pcs-testuser1 \
     -o ProxyCommand="aws ssm start-session --target $LOGIN_INSTANCE_ID --document-name AWS-StartSSHSession --parameters portNumber=%p --region $AWS_REGION" \
     testuser1@"$LOGIN_INSTANCE_ID" \
     "bash -lc 'srun -N 1 -n 1 -p cpu1 bash -c \"id; hostname; touch \\\$HOME/.pcs-verify-ok\"; ls -l \$HOME/.pcs-verify-ok'"
 # Expected: compute reports uid=10001, and .pcs-verify-ok is visible back on the
 # login home (shared OpenZFS).
+```
+
+### B9. Delete a user
+
+```bash
+ldapdelete -x -H ldap://localhost -D "cn=admin,dc=cluster,dc=internal" \
+  -w "$LDAP_ADMIN_PASSWORD" "uid=testuser2,ou=People,dc=cluster,dc=internal"
+
+# Verify deleted
+getent passwd testuser2    # should return nothing
+```
+
+Verify on compute (after cache expires or forced refresh):
+```bash
+srun -N 1 -n 1 -p cpu1 bash -c 'sudo sss_cache -E; sleep 2; getent passwd testuser2 || echo "user not found (correct)"'
 ```
 
 ---
@@ -606,7 +622,7 @@ on top of the existing LDAP users, exercising the customer-facing flow
 the blog demonstrates: two project accounts, a per-user cap, `--account=`
 job attribution, quota-based rejection, and the blog's own reporting
 commands. Regression guard for the walkthrough in
-[USER-MANAGEMENT.md §4.1](../docs/USER-MANAGEMENT.md#41-worked-example-project-accounts--per-user-quota--reports).
+[USER-MANAGEMENT.md §4.1](../docs/USER-MANAGEMENT.md#41-register-users-to-accounts).
 
 **Prerequisites**: same as the accounting test (`ManagedAccounting=enabled`
 + `DirectoryService=OpenLDAP-LoginNode`); alice / bob / carol as LDAP
@@ -615,17 +631,19 @@ users (add carol here if only alice/bob exist).
 ### F1. Project accounts and quota
 
 ```bash
-sudo LDAP_ADMIN_PASSWORD="$ADMIN_PW" ldap-add-user.sh carol 10003 3000
+S=/opt/aws/pcs/scheduler/slurm-25.11/bin/sacctmgr   # slurm-25.05 for SlurmVersion=25.05
 
-sudo sacctmgr -i add account proj_physics   Description="Physics group"
-sudo sacctmgr -i add account proj_chemistry Description="Chemistry group"
-sudo sacctmgr -i add user alice Account=proj_physics
-sudo sacctmgr -i add user bob   Account=proj_physics
-sudo sacctmgr -i add user carol Account=proj_chemistry
+sudo LDAP_ADMIN_PASSWORD="$ADMIN_PW" ldap-add-user.sh carol 10004 3000
 
-sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=6000
+sudo $S -i add account proj_physics   Description="Physics group"
+sudo $S -i add account proj_chemistry Description="Chemistry group"
+sudo $S -i add user alice Account=proj_physics
+sudo $S -i add user bob   Account=proj_physics
+sudo $S -i add user carol Account=proj_chemistry
 
-sacctmgr show user alice bob carol format=User,Account,DefaultAccount,GrpTRESRunMins
+sudo $S -i modify user alice set GrpTRESRunMins=cpu=6000
+
+sacctmgr show user alice bob carol WithAssoc format=User,Account,DefaultAccount,GrpTRESRunMins
 ```
 
 Expected: three users listed under the two project accounts; alice's
@@ -633,38 +651,47 @@ Expected: three users listed under the two project accounts; alice's
 
 ### F2. Blog-style job submission with `--account=`
 
+Run as alice in her login shell (`sudo su - alice`; exit back to the
+`ubuntu` shell when done):
+
 ```bash
-sudo su - alice -c 'export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; \
-  echo "hostname; id" > /home/alice/smalljob.sh && chmod +x /home/alice/smalljob.sh; \
-  sbatch --account=proj_physics --partition=cpu1 --cpus-per-task=2 --time=2:00 /home/alice/smalljob.sh'
+sudo su - alice
+printf '#!/bin/bash\nhostname\nid\n' > ~/smalljob.sh && chmod +x ~/smalljob.sh
+sbatch --account=proj_physics --partition=cpu1 --cpus-per-task=2 --time=2:00 ~/smalljob.sh
+exit
 ```
 
 Expected: `Submitted batch job <n>`; `sacct -j <n> -X --format=JobID,User,Account,State` reports `alice / proj_physics / COMPLETED`.
 
 ### F3. Quota hold with `safe` enforcement
 
-Only meaningful with `AccountingPolicyEnforcement=associations,limits,safe`.
-Note the `safe` variant *accepts* the submission and holds it pending
-instead of returning `sbatch: error …`; the strict variant
-(`associations,limits` without `safe`) rejects at submit time.
+Only meaningful with `AccountingPolicyEnforcement=associations,limits,safe`
+(the enforcement mode these templates offer). Note the `safe` variant
+*accepts* the submission and holds it pending instead of returning
+`sbatch: error …`.
 
-Tighten alice's limit first so a modest job triggers it:
+Tighten alice's limit first so a modest job triggers it (reusing `$S`
+from F1):
 
 ```bash
-sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=60
+sudo $S -i modify user alice set GrpTRESRunMins=cpu=60
 ```
 
-Submit an over-quota job (8 CPUs × 30 min = 240 CPU-min > 60):
+Submit an over-quota job (4 CPUs × 30 min = 120 CPU-min > 60). Slurm
+counts CPUs from what `sinfo -N -o %c` reports for the queue's nodes
+(not the EC2 vCPU count), so cap `--ntasks-per-node` at that value —
+the default `cpu1` on `c6i.2xlarge` reports 4:
 
 ```bash
-sudo su - alice -c 'export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; \
-  sbatch --account=proj_physics --partition=cpu1 --nodes=1 --ntasks-per-node=8 --time=30:00 --wrap="sleep 1000"'
+sudo su - alice
+sbatch --account=proj_physics --partition=cpu1 --nodes=1 --ntasks-per-node=4 --time=30:00 --wrap='sleep 1000'
+exit
 squeue -u alice -o "%.6i %.10P %.8u %.2t %r"
 ```
 
 Expected: `sbatch: Submitted batch job N`, then `squeue` shows the job
 in state `PD` with Reason `AssocGrpCPURunMinutesLimit`. Restore the
-original limit when done: `sudo sacctmgr -i modify user alice set GrpTRESRunMins=cpu=6000`.
+original limit when done: `sudo $S -i modify user alice set GrpTRESRunMins=cpu=6000`.
 
 ### F4. Blog reporting recipes
 
@@ -673,10 +700,10 @@ sacct --starttime=$(date -d "7 days ago" +%Y-%m-%d) \
   --format="JobID,User,JobName,Partition,Account,AllocCPUS,State,ExitCode"
 
 sreport cluster AccountUtilizationByUser \
-  start=$(date -d "30 days ago" +%Y-%m-%d) end=$(date +%Y-%m-%d) \
+  start=$(date -d "30 days ago" +%Y-%m-%d) end=now \
   -t percent format="Accounts,Login,Proper,Used"
 
-sreport user topusage start=$(date -d "30 days ago" +%Y-%m-%d) end=$(date +%Y-%m-%d)
+sreport user topusage start=$(date -d "30 days ago" +%Y-%m-%d) end=now
 
 sacct -u alice --starttime=$(date -d "7 days ago" +%Y-%m-%d) \
   --format="JobID,JobName,State,ExitCode,Start,End,MaxRSS,MaxVMSize,Comment"
@@ -689,9 +716,9 @@ slurmdbd rollup lag, not a failure (see USER-MANAGEMENT §4 note #2).
 ### F5. Cleanup
 
 ```bash
-sudo sacctmgr -i remove user       where User=alice   Account=proj_physics
-sudo sacctmgr -i remove user       where User=bob     Account=proj_physics
-sudo sacctmgr -i remove user       where User=carol   Account=proj_chemistry
-sudo sacctmgr -i remove account    where Account=proj_physics
-sudo sacctmgr -i remove account    where Account=proj_chemistry
+sudo $S -i remove user       where User=alice   Account=proj_physics
+sudo $S -i remove user       where User=bob     Account=proj_physics
+sudo $S -i remove user       where User=carol   Account=proj_chemistry
+sudo $S -i remove account    where Account=proj_physics
+sudo $S -i remove account    where Account=proj_chemistry
 ```

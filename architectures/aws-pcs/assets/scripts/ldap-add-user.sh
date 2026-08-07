@@ -35,6 +35,32 @@ if [[ ! "${USER_GID}" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+# Refuse UIDs outside the range this cluster reserves for LDAP users
+# (10001-59999). The DLAMI's local accounts sit at 1000 (ubuntu) and other
+# system UIDs live below 10000; a shadowing LDAP entry at those UIDs would
+# `chown -R "${USER_UID}:${USER_GID}" /home/<local-name>` and destroy the
+# local user's HOME on the shared /home (documented lower bound in
+# USER-MANAGEMENT.md §3.1).
+if [ "${USER_UID}" -lt 10001 ] || [ "${USER_UID}" -gt 59999 ]; then
+    echo "uid '${USER_UID}' is outside the LDAP-user range 10001-59999 (see USER-MANAGEMENT.md §3.1)." >&2
+    exit 1
+fi
+
+# Reject any username/UID that already resolves via NSS (local /etc/passwd,
+# SSSD/LDAP, or any other configured source). LDAP-only checks below miss
+# local shadowing: e.g. `ubuntu` has UID 1000 in /etc/passwd, and adding an
+# LDAP `ubuntu` would append the pubkey to /home/ubuntu/.ssh/authorized_keys
+# and chown /home/ubuntu to the new numeric UID — breaking the DLAMI account.
+if getent passwd "${USERNAME}" >/dev/null; then
+    echo "Username '${USERNAME}' already exists (local passwd or LDAP via NSS)." >&2
+    exit 1
+fi
+if getent passwd "${USER_UID}" >/dev/null; then
+    EXISTING=$(getent passwd "${USER_UID}" | cut -d: -f1)
+    echo "uid ${USER_UID} is already used by '${EXISTING}' (local passwd or LDAP via NSS)." >&2
+    exit 1
+fi
+
 # Auto-detect LDAP config from sssd.conf or environment
 LDAP_DOMAIN_SUFFIX="${LDAP_DOMAIN_SUFFIX:-$(sed -n 's/^ldap_search_base[[:space:]]*=[[:space:]]*//p' /etc/sssd/sssd.conf 2>/dev/null || echo 'dc=cluster,dc=internal')}"
 LDAP_DOMAIN_SUFFIX="${LDAP_DOMAIN_SUFFIX:-dc=cluster,dc=internal}"

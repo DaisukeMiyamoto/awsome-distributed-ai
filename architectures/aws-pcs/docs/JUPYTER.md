@@ -61,10 +61,12 @@ $HOME/jupyter-env/bin/pip install --upgrade pip jupyterlab
 
 **To run the GPU-visibility verify cell below**, also install PyTorch here so
 the kernel can `import torch` without another install roundtrip. The
-PCS-Ready DLAMI ships CUDA 12.x, so pin the matching wheel:
+PCS-Ready DLAMI's NVIDIA driver (595.x) supports current CUDA wheels; the
+`cu130` build matches the image's CUDA 13.2 stack (see
+[PCS-READY-DLAMI.md](./PCS-READY-DLAMI.md)):
 
 ```bash
-$HOME/jupyter-env/bin/pip install torch --index-url https://download.pytorch.org/whl/cu124
+$HOME/jupyter-env/bin/pip install torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
 > For ML work, also set `HF_HOME=/fsx/$USER/.hf-cache` in your notebooks/jobs —
@@ -193,23 +195,31 @@ with the disabled-auth form:
 ```bash
 exec jupyter lab --no-browser --ip="$NODE_IP" --port="$PORT" \
   --ServerApp.token='' --ServerApp.password='' \
-  --ServerApp.disable_check_xsrf=True \
   --notebook-dir="$HOME"
 ```
 
-The token file (and the `openssl rand` line above it) is no longer needed
-and can be dropped. Connect to `http://localhost:8888/lab` — no token
-required. Nothing else in Step 3 changes.
+The token file (and the `openssl rand` line above it) are no longer
+needed and can be dropped; you can also drop the `token   = ...` line
+from the sbatch banner heredoc. Steps 1 and 3 of Step 3 are unchanged —
+skip sub-step 2 (there is no token to read). Connect to
+`http://localhost:8888/lab` — no token required.
+
+Jupyter's default XSRF protection is left **enabled** (this recipe does
+not set `--ServerApp.disable_check_xsrf`); the Lab UI's own cookie+header
+flow works fine with it on, and it is the one browser-side guard that
+still prevents a random webpage open in your browser from POSTing to
+`http://localhost:8888` and executing code on the compute node.
 
 > **Do NOT do this on a multi-user cluster.** Jupyter binds to the compute
 > node's private IP; any other cluster user's job on any other node in the
 > same VPC subnet can reach that IP:port. The token is what separates one
 > user's notebook (with your `$HOME` and credentials) from another user's.
-> Removing it means anyone with a shell on any compute node can attach to
-> your kernel. On a single-`ubuntu`-user cluster there's only one identity,
-> so the token adds no separation and disabling it is fine; on a cluster
-> with `DirectoryService=OpenLDAP-LoginNode` (or any shared multi-user
-> setup) always keep the token.
+> Removing it means anyone who can run a job on this cluster can attach to
+> your kernel. Only use the token-less form when **every IAM principal who
+> can reach the VPC or submit jobs is trusted as the same person** — the
+> single-`ubuntu`-user default cluster is that case by construction;
+> `DirectoryService=OpenLDAP-LoginNode` (or any shared multi-user setup)
+> is not, so always keep the token there.
 
 ## Stopping
 
@@ -271,7 +281,8 @@ if torch.cuda.is_available():
 ```
 
 Expected: `torch.cuda.device_count()` **equals the `--gres=gpu:N` you
-requested**. If `nvidia-smi` shows more devices than
-`torch.cuda.device_count()`, Slurm's cgroup isolation is not restricting
-them — file a bug against the CNG configuration.
+requested**. Note that `nvidia-smi` from inside the job may still show
+all physical GPUs on the node — that's expected on these clusters;
+allocation is enforced per-process via `CUDA_VISIBLE_DEVICES`, which
+`torch.cuda.device_count()` respects.
 

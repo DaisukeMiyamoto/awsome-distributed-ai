@@ -23,7 +23,7 @@ CLI — pick one.
 ### deploy-all — from the CloudFormation console (Quick Create)
 
 1. Open the deploy-all template's **Launch Stack** link in the
-   [README](../README.md#quick-start) (or navigate to CloudFormation
+   [README](../README.md#3-quick-start) (or navigate to CloudFormation
    → *Create stack* → *Upload* `pcs-ml-cluster-deploy-all.yaml`).
 2. On the *Specify stack details* page, set:
    - **`DirectoryService`** → `OpenLDAP-LoginNode` (default is `none`
@@ -380,8 +380,11 @@ see the blog for pricing detail.
 
 Registering users in accounting is optional unless the cluster was
 deployed with `AccountingPolicyEnforcement=associations,limits,safe`
-(or the stricter `associations,limits`) — with either enforcement on,
-jobs from unregistered users are rejected.
+— with enforcement on, jobs from unregistered users are rejected.
+(Slurm also supports a stricter `associations,limits` mode that rejects
+over-quota work at submit time rather than holding it pending, but
+these templates only offer `none` and `associations,limits,safe`; the
+sections below use the latter.)
 
 > **`sacctmgr` add / modify / remove must run as root.** In PCS
 > managed accounting the Administrator is `root`; the default
@@ -390,13 +393,8 @@ jobs from unregistered users are rejected.
 > accounts"*. Read-only forms (`sacctmgr show …`, `sacct`, `sreport`)
 > work as any user.
 
-Ubuntu's `sudo` resets `PATH` (`secure_path`), so `sudo sacctmgr` from
-a shell where you only `export PATH=…` still fails to find the binary.
-Bind the absolute path to a variable and use it throughout:
-
 ```bash
-S=/opt/aws/pcs/scheduler/slurm-25.11/bin/sacctmgr   # 25.05 if SlurmVersion=25.05
-export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH  # for the read-only sacct / sreport below
+S=/opt/aws/pcs/scheduler/slurm-25.11/bin/sacctmgr   # slurm-25.05 for SlurmVersion=25.05
 ```
 
 ### 4.1 Register users to accounts
@@ -435,24 +433,54 @@ With `AccountingPolicyEnforcement=associations,limits,safe` a job
 that would put alice over her running-minutes budget is **accepted
 at submit time but held pending** with reason
 `AssocGrpCPURunMinutesLimit`; it starts only once earlier work drains
-the budget. A job that fits proceeds normally:
+the budget. To see this, first tighten the cap so a modest job trips
+it (8 CPUs × 30 min = 240 CPU-min > 60):
 
 ```bash
-# As alice
-sbatch --account=proj_physics --nodes=1 --ntasks-per-node=8 --time=30:00 myjob.sh
+sudo $S -i modify user alice set GrpTRESRunMins=cpu=60
+```
+
+As alice, in her login shell (`sudo su - alice`) — `sbatch` is on the
+login-shell `PATH`, no export needed. `--ntasks-per-node` here must not
+exceed what `sinfo -N -o %c` reports for the queue (4 on the default
+`cpu1` / `c6i.2xlarge`); at 4 tasks × 30 min = 120 CPU-min > 60 the
+limit still trips:
+
+```bash
+sudo su - alice
+# now inside alice's login shell:
+printf '#!/bin/bash\nsleep 1000\n' > ~/myjob.sh && chmod +x ~/myjob.sh
+sbatch --account=proj_physics --partition=cpu1 --nodes=1 --ntasks-per-node=4 --time=30:00 ~/myjob.sh
+exit
+# back in the ubuntu shell:
 squeue -u alice -o "%.6i %.10P %.8u %.2t %r"
 #   6      cpu1     alice PD AssocGrpCPURunMinutesLimit
-sbatch --account=proj_physics --nodes=1 --ntasks=1 --time=2:00 smalljob.sh
+```
+
+A job that fits proceeds normally (2 CPUs × 2 min = 4 CPU-min < 60):
+
+```bash
+sudo su - alice
+printf '#!/bin/bash\nhostname\n' > ~/smalljob.sh && chmod +x ~/smalljob.sh
+sbatch --account=proj_physics --partition=cpu1 --nodes=1 --ntasks=1 --time=2:00 ~/smalljob.sh
+exit
 #   -> Submitted batch job <n> (runs when a node is available)
+```
+
+Restore the original cap once done:
+
+```bash
+sudo $S -i modify user alice set GrpTRESRunMins=cpu=6000
 ```
 
 > **`safe` accepts, doesn't `sbatch: error` — even over-quota.** The
 > blog's *"Job violates accounting/QOS policy"* message would come from
-> the stricter `AccountingPolicyEnforcement=associations,limits` (no
-> `safe`). With `safe` the scheduler still accepts the submission so
-> the user can leave work queued; only *starting* it is deferred until
-> the running-minutes budget frees up. Watch `squeue`'s Reason column,
-> not `sbatch`'s exit status, to see the limit taking effect.
+> Slurm's stricter `associations,limits` mode (no `safe`), which these
+> templates don't offer. With `safe` the scheduler still accepts the
+> submission so the user can leave work queued; only *starting* it is
+> deferred until the running-minutes budget frees up. Watch `squeue`'s
+> Reason column, not `sbatch`'s exit status, to see the limit taking
+> effect.
 
 ### 4.3 Reporting
 
@@ -465,11 +493,11 @@ sacct --starttime=$(date -d "7 days ago" +%Y-%m-%d) \
 
 # Monthly cluster utilization by account/user
 sreport cluster AccountUtilizationByUser \
-  start=2026-04-01 end=2026-04-30 -t percent \
+  start=2026-04-01 end=2026-05-01 -t percent \
   format="Accounts,Login,Proper,Used"
 
 # Monthly top users
-sreport user topusage start=2026-03-01 end=2026-03-31
+sreport user topusage start=2026-03-01 end=2026-04-01
 
 # Per-user weekly failure diagnostic
 sacct -u alice --starttime=$(date -d "7 days ago" +%Y-%m-%d) \

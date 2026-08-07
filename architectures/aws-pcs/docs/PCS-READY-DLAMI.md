@@ -27,9 +27,11 @@ New builds are announced through the SNS topic
 
 ## PCS-Ready DLAMI x86\_64
 
-Every published x86\_64 PCS-Ready DLAMI, newest first. AMI IDs are region-scoped
-and shown for **us-east-2**; use the `describe-images` command below the table
-to look up the same build in another region.
+Snapshot (as of 2026-08-05) of the published x86\_64 PCS-Ready DLAMIs, newest
+first. AMI IDs are region-scoped and shown for **us-east-2** — the SSM
+parameter above resolves to the newest build in each region, so leaving
+`AmiId` empty in the templates is the region-portable path; refer here only
+when pinning to a specific build.
 
 Base-DLAMI component versions (kernel, NVIDIA driver, CUDA, DCGM, EFA,
 OFI-NCCL, containerd) come from the DLAMI release notes for the build named in
