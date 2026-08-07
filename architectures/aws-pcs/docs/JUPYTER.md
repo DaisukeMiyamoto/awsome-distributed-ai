@@ -45,6 +45,9 @@ Compute node — Jupyter server, launched as an sbatch job
 - **Multi-user clusters:** your `$HOME` must exist before the first job — log
   in to the login node (SSH or SSM) once so `pam_mkhomedir` creates it. Slurm
   jobs do not create home directories.
+- **Do not run Jupyter on the login node.** It has no GPUs and is shared with
+  the monitoring stack; always launch the server as a Slurm job on a compute
+  node, as Step 2 does.
 
 ## Step 1 — one-time: create a Jupyter environment on `/home`
 
@@ -54,6 +57,16 @@ FSx for OpenZFS, so every compute node sees the venv:
 ```bash
 python3 -m venv $HOME/jupyter-env
 $HOME/jupyter-env/bin/pip install --upgrade pip jupyterlab
+```
+
+**To run the GPU-visibility verify cell below**, also install PyTorch here so
+the kernel can `import torch` without another install roundtrip. The
+PCS-Ready DLAMI's NVIDIA driver (595.x) supports current CUDA wheels; the
+`cu130` build matches the image's CUDA 13.2 stack (see
+[PCS-READY-DLAMI.md](./PCS-READY-DLAMI.md)):
+
+```bash
+$HOME/jupyter-env/bin/pip install torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
 > For ML work, also set `HF_HOME=/fsx/$USER/.hf-cache` in your notebooks/jobs —
@@ -103,11 +116,17 @@ exec jupyter lab --no-browser --ip="$NODE_IP" --port="$PORT" \
   --notebook-dir="$HOME"
 ```
 
-Then submit it with `sbatch`. **`-p <queue>` is required** — Slurm has no
-default partition, so a bare `sbatch jupyter.sbatch` is rejected with
+Then submit it with `sbatch` **from `$HOME`** — Slurm's default working
+directory for a job is the submitter's CWD, and the `--output=%u-jupyter-%j.log`
+line above resolves relative to that. Submitting from anywhere else (e.g. an
+SSM shell that lands in `/var/…`) drops the log there instead of `$HOME`, and
+the connect step in Step 3 won't find it. **`-p <queue>` is required** — Slurm
+has no default partition, so a bare `sbatch jupyter.sbatch` is rejected with
 *"invalid partition specified"*. Run `sinfo` to list your queues, then:
 
 ```bash
+cd $HOME
+
 # CPU session — pick a CPU queue (e.g. cpu1)
 sbatch -p cpu1 jupyter.sbatch
 
@@ -115,9 +134,7 @@ sbatch -p cpu1 jupyter.sbatch
 sbatch -p gpu-g6 --gres=gpu:1 jupyter.sbatch
 ```
 
-For GPU work, add the ML stack to the venv from Step 1 once
-(`$HOME/jupyter-env/bin/pip install torch  # + transformers, etc.`); the GPU
-allocation behaviour is detailed in [Using GPUs](#using-gpus) below.
+GPU allocation behaviour is detailed in [Using GPUs](#using-gpus) below.
 
 The first submission on an idle queue waits ~2–3 minutes for the node to
 scale up (8–12 minutes if the node is also running its first-boot
@@ -128,16 +145,23 @@ Enroot/Pyxis install).
 The job log (`~/<user>-jupyter-<jobid>.log`, printed by the running job) gives
 you the compute node's `NODE_IP` and `PORT`. With those two values:
 
-**1. On your workstation** — open the SSM tunnel (fill in your Region and the
-`NODE_IP` / `PORT` from the log):
+**1. On your workstation** — open the SSM tunnel (fill in the `NODE_IP` /
+`PORT` from the job log). The login instance ID is resolved from the
+CloudFormation stack via the PCS API — same recipe used in
+[README §6](../README.md#6-accessing-the-cluster), so it works across
+multi-cluster VPCs without accidentally targeting another cluster's login:
 
 ```bash
-LOGIN_ID=$(aws ec2 describe-instances --region <region> \
-  --filters "Name=tag:Name,Values=*login" \
-            "Name=instance-state-name,Values=running" \
-  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+STACK_NAME=pcs-ml-cluster        # your CloudFormation stack name
+AWS_REGION=us-east-1             # your region
 
-aws ssm start-session --region <region> --target "$LOGIN_ID" \
+CLUSTER_ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].Outputs[?OutputKey==`ClusterId`].OutputValue' --output text)
+[ -n "$CLUSTER_ID" ] && [ "$CLUSTER_ID" != "None" ] || { echo "No ClusterId — check STACK_NAME/AWS_REGION"; return 1; }
+
+LOGIN_CNG_ID=$(aws pcs list-compute-node-groups --cluster-identifier "$CLUSTER_ID" --region "$AWS_REGION" --query 'computeNodeGroups[?name==`login`].id' --output text)
+LOGIN_ID=$(aws ec2 describe-instances --region "$AWS_REGION" --filters "Name=tag:aws:pcs:compute-node-group-id,Values=$LOGIN_CNG_ID" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+
+aws ssm start-session --region "$AWS_REGION" --target "$LOGIN_ID" \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters "host=<NODE_IP>,portNumber=<PORT>,localPortNumber=8888"
 ```
@@ -153,13 +177,49 @@ cat ~/.jupyter-token-<jobid>
 
 **3. In your browser** — open `http://localhost:8888/?token=<token>`.
 
-> **Required IAM.** The two CLI calls above are already permitted by the stock
+> **Required IAM.** The CLI calls above are already permitted by the stock
 > [`cluster-user-iam.yaml`](../assets/cluster-user-iam.yaml) policy (and by any
 > broader admin credentials). Under a restricted role, ensure it grants:
+> `cloudformation:DescribeStacks`, `pcs:ListComputeNodeGroups`,
 > `ec2:DescribeInstances` (find the login node); `ssm:StartSession` on the
-> login instance (`ssm:resourceTag/Name = PCS-login*`) and on the
-> `AWS-StartPortForwardingSessionToRemoteHost` document; and
+> login instance (`ssm:resourceTag/Name = <ClusterStackName>-login`) and on
+> the `AWS-StartPortForwardingSessionToRemoteHost` document; and
 > `ssm:TerminateSession` / `ssm:DescribeSessions` to end the tunnel.
+
+### Running without a token (single-user clusters only)
+
+If you're the only user on the cluster and want to skip the token
+copy-paste, swap the `--ServerApp.token=…` line in the sbatch script
+with the disabled-auth form:
+
+```bash
+exec jupyter lab --no-browser --ip="$NODE_IP" --port="$PORT" \
+  --ServerApp.token='' --ServerApp.password='' \
+  --notebook-dir="$HOME"
+```
+
+The token file (and the `openssl rand` line above it) are no longer
+needed and can be dropped; you can also drop the `token   = ...` line
+from the sbatch banner heredoc. Steps 1 and 3 of Step 3 are unchanged —
+skip sub-step 2 (there is no token to read). Connect to
+`http://localhost:8888/lab` — no token required.
+
+Jupyter's default XSRF protection is left **enabled** (this recipe does
+not set `--ServerApp.disable_check_xsrf`); the Lab UI's own cookie+header
+flow works fine with it on, and it is the one browser-side guard that
+still prevents a random webpage open in your browser from POSTing to
+`http://localhost:8888` and executing code on the compute node.
+
+> **Do NOT do this on a multi-user cluster.** Jupyter binds to the compute
+> node's private IP; any other cluster user's job on any other node in the
+> same VPC subnet can reach that IP:port. The token is what separates one
+> user's notebook (with your `$HOME` and credentials) from another user's.
+> Removing it means anyone who can run a job on this cluster can attach to
+> your kernel. Only use the token-less form when **every IAM principal who
+> can reach the VPC or submit jobs is trusted as the same person** — the
+> single-`ubuntu`-user default cluster is that case by construction;
+> `DirectoryService=OpenLDAP-LoginNode` (or any shared multi-user setup)
+> is not, so always keep the token there.
 
 ## Stopping
 
@@ -174,54 +234,55 @@ costs nothing.
 ## Using GPUs
 
 You launch a GPU session with the same script and the `sbatch -p <gpu-queue>
---gres=gpu:N` form shown in Step 2 — nothing else changes. How the GPU
-allocation behaves:
+--gres=gpu:N` form shown in Step 2 — nothing else changes.
 
-- **Slurm enforces the `--gres` count.** The job gets `CUDA_VISIBLE_DEVICES`
-  set to its allocated GPUs (e.g. `0,1` for `--gres=gpu:2` on a 4-GPU
-  g6.12xlarge), so frameworks like PyTorch see exactly the requested GPUs —
-  `torch.cuda.device_count()` matches the `--gres` count. GPU node groups
-  configure gres automatically (e.g. `Gres=gpu:L4:4`; check with
-  `scontrol show node <node>`).
-- **Multi-GPU works inside one notebook.** All allocated GPUs are visible to
-  the kernel, so `DataParallel` / FSDP / `accelerate` with
-  `num_processes=<gres count>` run as usual. Leave GPUs you don't need
-  unrequested — on multi-GPU nodes Slurm can schedule other jobs (another
-  user's Jupyter, batch training) onto the remaining GPUs.
-- **Sizing:** request only what you interactively need (`--gres=gpu:1` is
-  plenty for most exploration) and keep `--time` tight — an idle notebook
-  holds its GPUs until the job ends. For multi-hour *training*, prefer a
-  batch job over a notebook so the GPUs free up when the run finishes.
-  (Remember `HF_HOME=/fsx/$USER/.hf-cache` from Step 1 for model downloads.)
-- **Multi-NIC GPU nodes (P5/P6) work as-is.** On these instances `hostname -I`
-  returns dozens of addresses (one per EFA NIC). The script binds Jupyter to
-  the first entry, which in practice is the primary interface's IP (verified
-  on p5.48xlarge, 32 NICs) — and any entry is same-VPC-reachable from the
-  login node, so the port-forward path works regardless. The kernel saw all
-  8 H100s with `--gres=gpu:8`.
-- **Containerized kernels (optional):** to use an NGC image as the notebook
-  environment instead of a venv, wrap the server in Pyxis:
-  `srun --container-image=<image> --container-mounts=/fsx,$HOME …` around the
-  `jupyter lab` command inside the job. Import large images once to
-  `/fsx/*.sqsh` (see the [README §7](../README.md#7-running-a-job) enroot
-  note) and pass the `.sqsh` path as the image.
+### How the GPU allocation behaves
 
-## Notes
+- **`--gres=gpu:N` is the only knob.** Slurm sets `CUDA_VISIBLE_DEVICES`
+  accordingly and PyTorch sees exactly those GPUs. Request only what you
+  need — the remaining GPUs on a multi-GPU node stay available for other
+  jobs.
+- **Multi-GPU works inside one notebook.** All allocated GPUs are visible
+  to the kernel, so `DataParallel` / FSDP / `accelerate` run as usual.
+- **Sizing.** `--gres=gpu:1` is plenty for most interactive exploration.
+  Keep `--time` tight — an idle notebook holds its GPUs until the job
+  ends; prefer a batch job for multi-hour training.
+- **Multi-NIC GPU nodes (P5/P6) work as-is.** `hostname -I` returns one
+  address per EFA NIC; the script binds to the first, which is
+  same-VPC-reachable from the login node.
+- **Containerized kernels (optional).** Wrap `jupyter lab` in
+  `srun --container-image=<sqsh> --container-mounts=/fsx,$HOME …` to run
+  the notebook inside a Pyxis-imported image (see [README §7](../README.md#7-running-a-job)).
 
-- **Multi-user:** each user runs their own server job under their own UID; the
-  job-ID-derived port makes same-node collisions unlikely (see the comment in
-  the script). Keep tokens in `$HOME` (created mode 600 by the script) — treat
-  the token like a password to your account, since the SSM/IAM layer alone
-  does not distinguish cluster users.
-- **Multiple clusters in one account:** the `Name=*login` tag filter in the
-  connect snippet matches the login node of *every* PCS cluster that follows
-  the naming convention — add a `"Name=tag:ClusterName,Values=<your-stack>"`
-  filter to pin it when you run more than one.
-- **Alternative when `SSHAccessCidr` is set:** a plain SSH tunnel also works —
-  `ssh -L 8888:<compute-node-ip>:<port> <user>@<login-public-ip>` — useful for
-  users who cannot install the Session Manager plugin.
-- **Do not run Jupyter on the login node.** It has no GPUs, and it is shared
-  by every user (and hosts the monitoring stack).
-- **Scripts on `/fsx` can't be exec'd directly** (Lustre blocks `execve` on
-  some paths) — keep the sbatch file under `$HOME`, or invoke via
-  `bash /fsx/script.sh`.
+### Verify GPU visibility from the notebook
+
+Paste this into a new notebook cell after the kernel comes up. It confirms
+Slurm's `--gres` count, that PyTorch sees the same set of GPUs, and that a
+kernel actually runs on the allocated device:
+
+```python
+import os, torch
+
+# 1. What Slurm handed us
+print("CUDA_VISIBLE_DEVICES =", os.environ.get("CUDA_VISIBLE_DEVICES"))
+print("SLURM_JOB_GPUS       =", os.environ.get("SLURM_JOB_GPUS"))
+
+# 2. What PyTorch actually sees
+print("torch.cuda.is_available:", torch.cuda.is_available())
+print("torch.cuda.device_count:", torch.cuda.device_count())
+for i in range(torch.cuda.device_count()):
+    p = torch.cuda.get_device_properties(i)
+    print(f"  [{i}] {p.name}  {p.total_memory/1024**3:.1f} GiB  SM {p.major}.{p.minor}")
+
+# 3. Prove compute runs on the allocated GPU (raises if the kernel can't launch)
+if torch.cuda.is_available():
+    x = torch.randn(4096, 4096, device="cuda:0")
+    print("matmul on cuda:0 -> sum =", float((x @ x).sum()))
+```
+
+Expected: `torch.cuda.device_count()` **equals the `--gres=gpu:N` you
+requested**. Note that `nvidia-smi` from inside the job may still show
+all physical GPUs on the node — that's expected on these clusters;
+allocation is enforced per-process via `CUDA_VISIBLE_DEVICES`, which
+`torch.cuda.device_count()` respects.
+

@@ -31,7 +31,7 @@ Parameters:
   ClusterName:
     Type: String
     Description: Name of the PCS cluster
-    Default: "ml-cluster"
+    Default: "pcs-ml-cluster"
     AllowedPattern: '^[a-zA-Z][a-zA-Z0-9-]{0,39}$'
     ConstraintDescription: Must start with a letter, contain only alphanumeric characters and hyphens, and be 1-40 characters long
 

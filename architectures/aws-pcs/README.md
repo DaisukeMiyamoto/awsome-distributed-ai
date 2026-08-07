@@ -337,6 +337,10 @@ lines.) To submit it as a batch job instead:
 sbatch --partition=cpu1 --nodes=2 --wrap='srun bash -c "hostname"'
 ```
 
+> With `AccountingPolicyEnforcement` set, the submitter must be registered
+> in Slurm accounting or the job is rejected — see
+> [docs/USER-MANAGEMENT.md §4](./docs/USER-MANAGEMENT.md#4-slurm-accounting).
+
 ### Example B — multi-node GPU NCCL test (needs a GPU queue)
 
 A 2-node `all_reduce_perf` is the quickest GPU end-to-end check (GPU queue + Pyxis
@@ -778,6 +782,7 @@ In this repo:
 - [Jupyter on a compute node](./docs/JUPYTER.md) — run Jupyter as a Slurm job, browser access via SSM port forwarding
 - [IAM permissions guide](./docs/IAM.md) — cluster admin / cluster user roles, policy deploy, security considerations
 - [Deploy & testing procedures](./docs/DEPLOY-TESTING.md) — development deploy workflow with test S3 bucket
+- [PCS-Ready DLAMI version history](./docs/PCS-READY-DLAMI.md) — PCS Agent / Slurm / driver / CUDA / EFA / DCGM per published build
 - [Test & Validation Guide](./tests/README.md) — reproducible matrix with measured numbers
 - [GPU Cluster Health Check](../../4.validation_and_observability/2.gpu-cluster-healthcheck) — comprehensive GPU/EFA/NVLink validation suite (lightweight + intensive modes, Slurm prolog integration)
 - [Roadmap / TODO](./docs/ROADMAP.md)
