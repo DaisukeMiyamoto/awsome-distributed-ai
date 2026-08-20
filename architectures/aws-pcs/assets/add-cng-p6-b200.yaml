@@ -380,53 +380,67 @@ Resources:
             MIME-Version: 1.0
 
             runcmd:
-            # --- Protect running jobs from unattended-upgrades / needrestart ---
-            # apt-daily-upgrade updates base libraries (e.g. glibc). needrestart then
-            # auto-restarts every service linked against them. slurmd links libc, so it
-            # gets restarted mid-upgrade - which KILLS the jobs running under it (the
-            # step is torn down and the job requeues from scratch). Exclude slurmd
-            # from needrestart's automatic restart so a security upgrade can
-            # never take down a running job. Security packages still install; only the
-            # slurmd auto-restart is suppressed. (PCS runs the controller managed-side;
-            # slurmd is the only Slurm systemd service on login/compute nodes. qr(^slurmd)
-            # also covers the versioned units, e.g. slurmd-25.11.)
-            # runcmd runs under /bin/sh (dash) - keep this POSIX-clean, no bashisms.
+            # Boot-script fetch helper. First-boot scripts live under
+            # s3://${S3BucketName}/${S3KeyPrefix}scripts/; EVERY fetch goes through
+            # pcs-fetch so a failure can never be silent: 3 attempts 15s apart, the
+            # bucket region is re-probed each attempt (HTTPS HEAD; avoids the CRT
+            # 301 cross-region signing bug, and a transient empty probe just falls
+            # back to default signing for that attempt), every attempt and the
+            # final failure are logged to /var/log/pcs-boot-fetch.log with a
+            # grep-able "ERROR: failed to fetch" line. A silent fetch failure on a
+            # replacement login node once cost a support round-trip to root-cause.
+            # runcmd runs under /bin/sh (dash) - keep this POSIX-clean; the boot
+            # scripts themselves are bash.
             - |
-              mkdir -p /etc/needrestart/conf.d &&
-              cat > /etc/needrestart/conf.d/90-pcs-slurm.conf <<'NRCONF' &&
-              # AWS PCS: never auto-restart slurmd - restarting it kills
-              # the jobs running under it. Managed by add-cng UserData.
-              $nrconf{override_rc} = { qr(^slurmd) => 0 };
-              NRCONF
-              echo "needrestart: slurmd excluded from auto-restart" | tee /var/log/pcs-needrestart-guard.log
+              mkdir -p /etc/pcs
+              printf '[default]\ns3 =\n  preferred_transfer_client = classic\n' > /etc/pcs/aws-cli-classic.config
+              cat > /usr/local/sbin/pcs-fetch <<'PCSFETCH'
+              #!/bin/sh
+              # pcs-fetch <s3-url> <dest> -- boot-script fetch with retry + logging.
+              #
+              # AWS_CONFIG_FILE pins the CLI to the CLASSIC transfer client for this
+              # fetch only. On P5/P6 GPU instances `auto` resolves to the CRT client,
+              # which does NOT follow S3 region redirects -- a cross-region fetch
+              # fails outright (aws-c-s3 AWS_ERROR_S3_INVALID_RESPONSE_STATUS after
+              # the HeadObject 301). Classic follows the redirect, so the fetch
+              # works regardless of the bucket's region; boot scripts are a few KB,
+              # so CRT throughput is irrelevant here. The region probe below is kept
+              # as belt-and-braces (avoids the redirect round-trip when it works).
+              URL="$1"; DEST="$2"; LOG=/var/log/pcs-boot-fetch.log
+              export AWS_CONFIG_FILE=/etc/pcs/aws-cli-classic.config
+              BUCKET=$(printf '%s' "$URL" | sed -E 's#^s3://([^/]+).*#\1#')
+              i=1
+              while [ "$i" -le 3 ]; do
+                REGION=$(curl -sI "https://$BUCKET.s3.amazonaws.com/" | tr -d '\r' \
+                  | awk -F': ' 'tolower($1)=="x-amz-bucket-region"{print tolower($2)}')
+                if [ -n "$REGION" ]; then
+                  echo "[pcs-fetch] attempt $i/3: $URL (bucket region $REGION)" >> "$LOG"
+                  aws s3 cp "$URL" "$DEST" --region "$REGION" >> "$LOG" 2>&1 && chmod +x "$DEST" && exit 0
+                else
+                  echo "[pcs-fetch] attempt $i/3: $URL (region probe empty; classic client follows redirect)" >> "$LOG"
+                  aws s3 cp "$URL" "$DEST" >> "$LOG" 2>&1 && chmod +x "$DEST" && exit 0
+                fi
+                [ "$i" -lt 3 ] && sleep 15
+                i=$((i+1))
+              done
+              echo "ERROR: failed to fetch $URL after 3 attempts" >> "$LOG"
+              exit 1
+              PCSFETCH
+              chmod +x /usr/local/sbin/pcs-fetch
+            # --- Protect running jobs from unattended-upgrades / needrestart ---
+            # See scripts/needrestart-guard.sh for the full rationale.
+            - |
+              /usr/local/sbin/pcs-fetch s3://${S3BucketName}/${S3KeyPrefix}scripts/needrestart-guard.sh /tmp/needrestart-guard.sh
+              /tmp/needrestart-guard.sh
             # Post-install script (optional) - generic OnNodeConfigured-style hook.
             # Downloads and runs a user-supplied script (e.g. Enroot/Pyxis install).
             - |
               if [ -n "${PostInstallScriptUrl}" ]; then
                 echo "Downloading post-install script from ${PostInstallScriptUrl}..." | tee /var/log/pcs-post-install.log
                 case "${PostInstallScriptUrl}" in
-                  s3://*)
-                    # Resolve the bucket's real region via HTTPS HEAD and pass it as
-                    # --region. Without this, `aws s3 cp` uses the instance's IMDS
-                    # region for signing; if that differs from the bucket's region,
-                    # the HeadObject probe gets 301 Moved Permanently and the CLI's
-                    # CRT S3 client fails to recover (aws-c-s3 AWS_ERROR_S3_INVALID_
-                    # RESPONSE_STATUS 14343). Symptom: post-install exit 127 on GPU
-                    # CNGs when the templates bucket sits in a different region
-                    # than the cluster.
-                    S3_URL="${PostInstallScriptUrl}"
-                    S3_BUCKET_FOR_HEAD=$(printf '%s' "$S3_URL" | sed -E 's#^s3://([^/]+).*#\1#')
-                    S3_BUCKET_REGION=$(curl -sI "https://$S3_BUCKET_FOR_HEAD.s3.amazonaws.com/" \
-                      | tr -d '\r' | awk -F': ' 'tolower($1)=="x-amz-bucket-region"{print tolower($2)}')
-                    if [ -n "$S3_BUCKET_REGION" ]; then
-                      echo "Resolved bucket region: $S3_BUCKET_REGION" | tee -a /var/log/pcs-post-install.log
-                      aws s3 cp "$S3_URL" /tmp/pcs-post-install.sh --region "$S3_BUCKET_REGION" >> /var/log/pcs-post-install.log 2>&1
-                    else
-                      echo "Bucket region lookup failed; falling back to CLI default" | tee -a /var/log/pcs-post-install.log
-                      aws s3 cp "$S3_URL" /tmp/pcs-post-install.sh >> /var/log/pcs-post-install.log 2>&1
-                    fi
-                    ;;
-                  *)      curl -fsSL "${PostInstallScriptUrl}" -o /tmp/pcs-post-install.sh ;;
+                  s3://*) /usr/local/sbin/pcs-fetch "${PostInstallScriptUrl}" /tmp/pcs-post-install.sh ;;
+                  *)      curl -fsSL --retry 3 --retry-delay 15 "${PostInstallScriptUrl}" -o /tmp/pcs-post-install.sh \
+                            || echo "ERROR: failed to fetch ${PostInstallScriptUrl} after 3 attempts" >> /var/log/pcs-boot-fetch.log ;;
                 esac
                 chmod +x /tmp/pcs-post-install.sh
                 echo "Executing post-install script..." | tee -a /var/log/pcs-post-install.log
@@ -438,16 +452,15 @@ Resources:
               else
                 echo "No post-install script configured (PostInstallScriptUrl empty)" | tee /var/log/pcs-post-install.log
               fi
-            # FSx Home directories mount
-            - mkdir -p /tmp/home
-            - rsync -aA /home/ /tmp/home
-            - echo "${FSxOpenZFSFilesystemId}.fsx.${AWS::Region}.amazonaws.com:/fsx/ /home nfs noatime,nfsvers=3,sync,nconnect=16,rsize=1048576,wsize=1048576,defaults 0 0" >> /etc/fstab
-            - mount -a -t nfs defaults
-            - if [ "enabled" = "$(sestatus | awk '/^SELinux status:/{print $3}')" ]; then setsebool -P use_nfs_home_dirs 1; fi
-            - rsync -aA --ignore-existing /tmp/home/ /home
-            - rm -rf /tmp/home/
-            # If provided, mount FSxL filesystem as /fsx
-            - if [ ! -z "${FSxLustreFilesystemId}" ]; then mkdir -p /fsx; mount -t lustre -o noatime,flock,lazystatfs ${FSxLustreFilesystemId}.fsx.${AWS::Region}.amazonaws.com@tcp:/${FSxLustreFilesystemMountName} /fsx; chmod 1777 /fsx; fi
+            # Mount shared filesystems: /home (FSx OpenZFS) always, /fsx (FSx Lustre) if provided.
+            # See scripts/mount-openzfs-home.sh, scripts/mount-lustre-fsx.sh for the mount logic.
+            - |
+              /usr/local/sbin/pcs-fetch s3://${S3BucketName}/${S3KeyPrefix}scripts/mount-openzfs-home.sh /tmp/mount-openzfs-home.sh
+              /tmp/mount-openzfs-home.sh "${FSxOpenZFSFilesystemId}"
+              if [ -n "${FSxLustreFilesystemId}" ]; then
+                /usr/local/sbin/pcs-fetch s3://${S3BucketName}/${S3KeyPrefix}scripts/mount-lustre-fsx.sh /tmp/mount-lustre-fsx.sh
+                /tmp/mount-lustre-fsx.sh "${FSxLustreFilesystemId}" "${FSxLustreFilesystemMountName}"
+              fi
             # Monitoring stack installation (optional, enabled on Login Node only)
             - |
               if [ "${DeployMonitoring}" = "true" ]; then
@@ -463,7 +476,8 @@ Resources:
                 # default pin when empty, so leaving DcgmExporterImage empty keeps
                 # the stock behaviour. See aws-parallelcluster-monitoring #50.
                 export DCGM_EXPORTER_IMAGE="${DcgmExporterImage}"
-                curl -fsSL https://raw.githubusercontent.com/${MonitoringRepo}/${MonitoringVersion}/post-install.sh -o /tmp/post-install.sh
+                curl -fsSL --retry 3 --retry-delay 15 https://raw.githubusercontent.com/${MonitoringRepo}/${MonitoringVersion}/post-install.sh -o /tmp/post-install.sh \
+                  || echo "ERROR: failed to fetch monitoring post-install.sh from ${MonitoringRepo}@${MonitoringVersion} after 3 attempts" >> /var/log/pcs-boot-fetch.log
                 # Make every child `apt-get` in the upstream installer wait up to 5 min
                 # for the dpkg lock (default is fail-fast). The installer runs unedited,
                 # so we can't pass `-o DPkg::Lock::Timeout=300` per-call — an apt.conf.d
@@ -501,16 +515,11 @@ Resources:
                 # ldap-add-user.sh helper onto /usr/local/bin from the same bucket.
                 export S3_BUCKET="${S3BucketName}"
                 export S3_KEY_PREFIX="${S3KeyPrefix}"
-                # Resolve the bucket's region (see post-install block above for why —
-                # cross-region cp gets 301 on multi-NIC instances).
-                S3_BUCKET_REGION=$(curl -sI "https://${S3BucketName}.s3.amazonaws.com/" \
-                  | tr -d '\r' | awk -F': ' 'tolower($1)=="x-amz-bucket-region"{print tolower($2)}')
-                if [ -n "$S3_BUCKET_REGION" ]; then
-                  aws s3 cp s3://${S3BucketName}/${S3KeyPrefix}scripts/setup-directory.sh /tmp/setup-directory.sh --region "$S3_BUCKET_REGION"
-                else
-                  aws s3 cp s3://${S3BucketName}/${S3KeyPrefix}scripts/setup-directory.sh /tmp/setup-directory.sh
-                fi
-                chmod +x /tmp/setup-directory.sh
+                # Fetch through pcs-fetch (retry + logged). This fetch used to be
+                # the ONE with no output redirection: a silent failure here left
+                # ldap-add-user.sh missing on a replacement login node with only
+                # an unexplained exit 127 in directory-setup.log.
+                /usr/local/sbin/pcs-fetch s3://${S3BucketName}/${S3KeyPrefix}scripts/setup-directory.sh /tmp/setup-directory.sh
                 bash /tmp/setup-directory.sh "${DirectoryRole}" 2>&1 | tee /var/log/directory-setup.log
               fi
 

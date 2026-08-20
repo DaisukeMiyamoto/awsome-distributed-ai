@@ -69,15 +69,15 @@ done
 # 4. The needrestart/slurmd guard block must be byte-identical across the four
 #    CNG templates. It is hand-duplicated (no shared include), so an edit that
 #    lands in only some of the copies is exactly the drift this catches.
-guard_extract() {  # print the guard block: comment header through the log line
+guard_extract() {  # print the guard block: comment header through the exec line
   # Leading whitespace is stripped because the four templates legitimately nest
-  # the block at different depths. Side effect: the check cannot see RELATIVE
-  # indentation drift inside the block (e.g. an indented NRCONF terminator, or
-  # <<'NRCONF' switched to the tab-stripping <<-'NRCONF' in one template) —
-  # those would change deployed behavior while still comparing as identical.
+  # the block at different depths. The block itself is the S3-fetch + exec
+  # wrapper for scripts/needrestart-guard.sh — see that script for the actual
+  # needrestart config. Side effect: the check cannot see RELATIVE indentation
+  # drift inside the wrapper.
   awk '/--- Protect running jobs from unattended-upgrades \/ needrestart ---/{p=1}
        p{print}
-       p&&/pcs-needrestart-guard\.log/{exit}' "$1" | sed -E 's/^[[:space:]]+//'
+       p&&/\/tmp\/needrestart-guard\.sh$/{exit}' "$1" | sed -E 's/^[[:space:]]+//'
 }
 ref=$(guard_extract assets/add-cng.yaml)
 if [ -z "$ref" ]; then
