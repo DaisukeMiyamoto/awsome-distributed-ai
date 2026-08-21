@@ -348,6 +348,9 @@ Parameters:
       can boot a newer AMI than the original nodes (drift). For production, pin to a
       specific ami-xxx -- e.g. one produced by pcs-ready-dlami-with-enroot-pyxis.yaml
       with Enroot/Pyxis pre-baked, or any other AMI built off the PCS-Ready DLAMI base.
+      The AMI must carry PCS agent >= 1.5.0-1 (PCS-Ready DLAMI builds since
+      2026-07-20 -- see docs/PCS-READY-DLAMI.md): node setup runs through node
+      lifecycle actions, which older agents do not support.
     Default: ''
     AllowedPattern: '^$|^ami-[0-9a-f]{8,17}$'
     ConstraintDescription: Must be empty or a valid AMI ID (ami-xxxxxxxxx)
@@ -355,10 +358,13 @@ Parameters:
   PostInstallScriptUrl:
     Type: String
     Description: >-
-      URL of a script run on every node at first boot (PCS equivalent of
-      ParallelCluster OnNodeConfigured). Accepts an s3:// URL (fetched with the
-      instance role — works with a private bucket) or an http(s):// URL (fetched
-      with curl — public only). Leave EMPTY (default) to auto-install Enroot/Pyxis
+      URL of a script run on every node at first boot as a node lifecycle
+      action (PCS equivalent of ParallelCluster OnNodeConfigured). Accepts an
+      s3:// URL (fetched with the instance role — works with a private bucket)
+      or an https:// URL (publicly readable; plain http:// is not supported).
+      The script receives the cluster's SlurmVersion as its first argument,
+      then PostInstallScriptArgs (single argument) when set.
+      Leave EMPTY (default) to auto-install Enroot/Pyxis
       from the templates bucket (s3://<S3BucketName>/<S3KeyPrefix>scripts/install-enroot-pyxis.sh),
       so it works in dev accounts without public S3. Set to your own s3://or
       https:// script for custom first-boot setup, or to a single space to skip.

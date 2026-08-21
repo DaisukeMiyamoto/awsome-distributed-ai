@@ -96,8 +96,8 @@ aws cloudformation describe-stack-events --stack-name pcs-test --region ${REGION
 ```
 
 Typical timeline (~25-30 min): Prerequisites (VPC + FSx) ~10 min → Cluster ~5 min →
-Login + compute node groups (parallel) ~5 min → node boot + cloud-init (post-install,
-monitoring, directory) ~3-8 min.
+Login + compute node groups (parallel) ~5 min → node boot + lifecycle actions
+(mounts, directory, post-install, monitoring) ~3-8 min.
 
 ## 5. Connect and verify
 
@@ -120,8 +120,8 @@ Then `sudo su - ubuntu` and run the checks relevant to your change. A few quick 
 # Slurm sees the queues / nodes (adjust the version if you set SlurmVersion=25.05)
 export PATH=/opt/aws/pcs/scheduler/slurm-25.11/bin:$PATH; sinfo -N; squeue
 
-# Container runtime came from your bucket (the log shows the s3:// it fetched)
-grep s3:// /var/log/pcs-post-install.log
+# Container runtime came from your bucket (the executor log shows the s3:// it fetched)
+sudo grep -r s3:// /var/log/amazon/pcs/lifecycle/actions/executor.log
 
 # Monitoring containers (when MonitoringStack=Prometheus-LoginNode)
 sudo docker ps --format "table {{.Names}}\t{{.Status}}"

@@ -119,6 +119,9 @@ Parameters:
       (Optional) AMI ID for the nodes. Leave empty to auto-resolve the latest
       PCS-Ready DLAMI (Ubuntu 24.04 x86_64) from SSM Parameter Store. Set an explicit
       ami-xxxx only to override (e.g. a custom AMI built with Enroot/Pyxis pre-baked).
+      The AMI must carry PCS agent >= 1.5.0-1 (PCS-Ready DLAMI builds since
+      2026-07-20 — see docs/PCS-READY-DLAMI.md): node setup runs through node
+      lifecycle actions, which older agents do not support.
     Default: ""
     AllowedPattern: '^$|^ami-[0-9a-f]{8,17}$'
     ConstraintDescription: Must be empty or a valid AMI ID (ami-xxxxxxxxxxxxxxxxx)
@@ -192,15 +195,22 @@ Parameters:
   PostInstallScriptUrl:
     Type: String
     Description: >-
-      Optional URL of a post-install script to download and run on each node at
-      first boot (PCS equivalent of ParallelCluster OnNodeConfigured). Leave
-      empty to skip. To install Enroot/Pyxis, point this at assets/scripts/install-enroot-pyxis.sh.
-      Accepts an s3:// URL (instance-role fetch; private bucket OK) or an http(s):// URL (curl; public only). For Enroot/Pyxis point at scripts/install-enroot-pyxis.sh in the templates bucket.
+      Optional URL of a post-install script run on each node at first boot as
+      a node lifecycle action (PCS equivalent of ParallelCluster
+      OnNodeConfigured). Leave empty (or a single space) to skip. Accepts an
+      s3:// URL (instance-role fetch; private bucket OK) or an https:// URL
+      (publicly readable; plain http:// is not supported by lifecycle actions).
+      The script receives the cluster's SlurmVersion as its FIRST argument,
+      then PostInstallScriptArgs (single argument) when set. For Enroot/Pyxis
+      point at scripts/install-enroot-pyxis.sh in the templates bucket.
     Default: ''
 
   PostInstallScriptArgs:
     Type: String
-    Description: Space-separated arguments passed to the post-install script.
+    Description: >-
+      Extra arguments for the post-install script. Passed as a SINGLE argument
+      after the SlurmVersion (lifecycle actions pass arguments verbatim — no
+      shell word-splitting). Empty or a single space passes nothing.
     Default: ''
 
   SlurmVersion:
@@ -257,8 +267,12 @@ Conditions:
   HasAmiId: !Not [!Equals [!Ref AmiId, ""]]
   DirectoryEnabled: !Not [!Equals [!Ref DirectoryRole, 'none']]
   HasLustre: !Not [!Equals [!Ref FSxLustreFilesystemId, '']]
-  HasPostInstall: !Not [!Equals [!Ref PostInstallScriptUrl, '']]
-  HasPostInstallArgs: !Not [!Equals [!Ref PostInstallScriptArgs, '']]
+  # Empty AND a single space both mean "no post-install": deploy-all uses a
+  # single space as its documented skip sentinel (empty at the deploy-all
+  # layer auto-installs Enroot/Pyxis), and the lifecycle ScriptLocation
+  # pattern would reject ' ' as a URL and fail CNG creation.
+  HasPostInstall: !Not [!Or [!Equals [!Ref PostInstallScriptUrl, ''], !Equals [!Ref PostInstallScriptUrl, ' ']]]
+  HasPostInstallArgs: !Not [!Or [!Equals [!Ref PostInstallScriptArgs, ''], !Equals [!Ref PostInstallScriptArgs, ' ']]]
   MonitoringEnabled: !Equals [!Ref DeployMonitoring, 'true']
   HasDcgmImage: !Not [!Equals [!Ref DcgmExporterImage, '']]
 

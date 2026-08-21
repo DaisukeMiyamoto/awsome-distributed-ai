@@ -716,20 +716,22 @@ pcs-ml-cluster-deploy-all.yaml                    ← user deploys this
 │     • MonitoringRole=login → Prometheus/Grafana
 │     • DirectoryService=OpenLDAP-LoginNode → slapd server
 │     │
-│     └─ UserData fetches external scripts:
+│     └─ Node lifecycle actions run external scripts:
+│          ├─ needrestart-guard.sh, mount-openzfs-home.sh, mount-lustre-fsx.sh
+│          ├─ setup-directory.sh server (when DirectoryRole=server)
 │          ├─ PostInstallScriptUrl (default: install-enroot-pyxis.sh)
-│          ├─ MonitoringRepo/MonitoringVersion → post-install.sh
-│          └─ setup-directory.sh server (when DirectoryRole=server)
+│          └─ install-monitoring.sh (nodeReady)
 │
 ├─► add-cng.yaml (compute)                        ← CPU queue (dynamic scaling 0→N)
 │     • MonitoringRole=compute → Node Exporter
 │     • DirectoryService=OpenLDAP-LoginNode → SSSD client
 │     • EfaInterfaceCount>0 → EFA NetworkInterfaces + PG
 │     │
-│     └─ UserData fetches external scripts:
+│     └─ Node lifecycle actions run external scripts:
+│          ├─ needrestart-guard.sh, mount-openzfs-home.sh, mount-lustre-fsx.sh
+│          ├─ setup-directory.sh client (when DirectoryRole=client)
 │          ├─ PostInstallScriptUrl (same as login)
-│          ├─ MonitoringRepo/MonitoringVersion → post-install.sh
-│          └─ setup-directory.sh client (when DirectoryRole=client)
+│          └─ install-monitoring.sh (nodeReady)
 │
 └─► add-cng-p5.yaml / add-cng-p6-b200.yaml       ← GPU queue (optional)
     / add-cng-p6-b300.yaml

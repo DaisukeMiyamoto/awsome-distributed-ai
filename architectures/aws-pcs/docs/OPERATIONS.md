@@ -65,14 +65,15 @@ against**. A `spank_pyxis.so` built for 25.11 makes a 25.05 slurmd refuse to sta
 `SlurmVersion` value on the AMI build stack and on the cluster stack, otherwise nodes
 won't come up.
 
-### 2.3 PostInstall passes the version via `PCS_SLURM_VERSION`
+### 2.3 PostInstall receives the version as its first argument
 
-For the PostInstall path, `add-cng*.yaml`'s UserData exports
-`PCS_SLURM_VERSION="${SlurmVersion}"` before invoking the script. The script can't
-discover the cluster's Slurm version itself at first boot (cloud-init runs before
-slurmd / `/etc/profile.d/slurm.sh` / the controller config exist), so it relies on this
-explicit hand-off. When PCS adds a native post-install hook in the future, it should
-expose the cluster Slurm version the same way.
+For the PostInstall path, `add-cng*.yaml`'s `post-install` lifecycle action passes
+the cluster's `SlurmVersion` as the script's **first positional argument** (lifecycle
+actions can't set environment variables). The script can't discover the cluster's
+Slurm version itself at first boot (it runs before slurmd /
+`/etc/profile.d/slurm.sh` / the controller config exist), so it relies on this
+explicit hand-off. The `PCS_SLURM_VERSION` environment variable is still honored
+for the custom-AMI build path and manual runs.
 
 If you run `install-enroot-pyxis.sh` manually with `PCS_SLURM_VERSION` unset, the
 script falls back to building every supported version and using the newest installed
@@ -267,8 +268,8 @@ to `relatime` (the kernel default, which updates atime at most once per day).
 with `_netdev` reliably waits for network readiness. Lustre requires not just
 network but the `lustre` kernel module and LNet initialization to be complete;
 fstab + `_netdev` alone doesn't guarantee this ordering. Mounting explicitly
-in cloud-init `runcmd` (which runs after network + module load) is the most
-portable approach.
+in the `mount-lustre-fsx` node lifecycle action (which runs after network +
+module load, before slurmd) is the most portable approach.
 
 ### 4.2 Lustre runtime performance tuning (recommended)
 
@@ -278,8 +279,8 @@ training workloads. They are **not set by the templates by default** (to keep
 the base minimal and avoid surprising users), but can be added to a
 post-install script or run manually on the login/compute nodes.
 
-These settings do not persist across reboot — add them to a boot script or
-UserData if you want them permanent.
+These settings do not persist across reboot — add them to a post-install
+script or an `EVERY_BOOT` lifecycle action if you want them permanent.
 
 ```bash
 # --- Data path (OSC): controls per-OST throughput ---
@@ -386,8 +387,8 @@ relevant regardless of transport.
 
 These require a **reboot** (or module reload) to take effect. For the
 reference architecture, the recommended path is to add them to a custom AMI
-(via `pcs-ready-dlami-with-enroot-pyxis.yaml`) or to early UserData before
-the Lustre mount.
+(via `pcs-ready-dlami-with-enroot-pyxis.yaml`) or to an `EVERY_BOOT`
+lifecycle action ordered before `mount-lustre-fsx`.
 
 ### 4.5 OS-level sysctl (optional)
 
@@ -473,12 +474,13 @@ When an unattended security upgrade updates a base library `slurmd` links (e.g. 
 it — **stopping every job on the node**. It is reproducible, not random, and not a reboot
 or a Slurm-package upgrade.
 
-The compute-node-group templates already guard against this: each `add-cng*` UserData
-writes a `needrestart` drop-in so `slurmd` is never auto-restarted (security updates still
-install; `needrestart` only defers the `slurmd` restart):
+The compute-node-group templates already guard against this: each `add-cng*` template's
+`needrestart-guard` lifecycle action writes a `needrestart` drop-in so `slurmd` is never
+auto-restarted (security updates still install; `needrestart` only defers the `slurmd`
+restart):
 
 ```perl
-# /etc/needrestart/conf.d/90-pcs-slurm.conf  (written by add-cng* UserData)
+# /etc/needrestart/conf.d/90-pcs-slurm.conf  (written by scripts/needrestart-guard.sh)
 $nrconf{override_rc} = { qr(^slurmd) => 0 };
 ```
 
