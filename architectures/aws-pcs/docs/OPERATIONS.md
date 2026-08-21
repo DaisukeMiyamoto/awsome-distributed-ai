@@ -37,20 +37,20 @@ doesn't include it, and `install-enroot-pyxis.sh` builds Pyxis only for 25.05/25
 This section covers the node image (`AmiId`) and how the Enroot/Pyxis container
 runtime gets onto it — two facets of the same decision.
 
-### 2.1 Container runtime: PostInstall vs. pre-baked AMI
+### 2.1 Container runtime: first-boot install vs. pre-baked AMI
 
 Two paths install Enroot/Pyxis on a node. They are **decoupled**: the cluster stack
 (`pcs-ml-cluster-deploy-all.yaml`) does not run Image Builder — it accepts a ready
 `AmiId`. To get a pre-baked AMI you run `pcs-ready-dlami-with-enroot-pyxis.yaml` once
 as a separate stack, then pass its output to the cluster.
 
-- **PostInstall (default)** — `PostInstallScriptUrl` runs `install-enroot-pyxis.sh`
+- **First-boot install (default)** — `InstallEnrootPyxis=true` runs `install-enroot-pyxis.sh`
   on every node at first boot. Adds ~2-3 min to boot but the cluster stack itself is
   faster to create (no Image Builder step). This is what `AmiId=""` (default) plus
-  the default `PostInstallScriptUrl` delivers.
+  the default `InstallEnrootPyxis=true` delivers.
 - **Pre-baked AMI** — build the AMI separately (see the README's
   *Pre-baking Enroot/Pyxis into a custom AMI* section), then pass its `ami-xxx` as
-  the cluster's `AmiId`. Set `PostInstallScriptUrl=' '` (a single space) for the
+  the cluster's `AmiId`. Set `InstallEnrootPyxis=false` for the
   cleanest boot — that skips the Enroot/Pyxis install entirely. (Leaving it at the
   default — empty, which auto-installs from the templates bucket — also works on a
   pre-baked AMI: the installer is idempotent and detects Enroot/Pyxis is already
@@ -65,9 +65,9 @@ against**. A `spank_pyxis.so` built for 25.11 makes a 25.05 slurmd refuse to sta
 `SlurmVersion` value on the AMI build stack and on the cluster stack, otherwise nodes
 won't come up.
 
-### 2.3 PostInstall receives the version as its first argument
+### 2.3 The installer receives the Slurm version as its first argument
 
-For the PostInstall path, `add-cng*.yaml`'s `post-install` lifecycle action passes
+For the first-boot path, `add-cng*.yaml`'s `install-enroot-pyxis` lifecycle action passes
 the cluster's `SlurmVersion` as the script's **first positional argument** (lifecycle
 actions can't set environment variables). The script can't discover the cluster's
 Slurm version itself at first boot (it runs before slurmd /
@@ -91,7 +91,7 @@ Pinning Pyxis and slurmd's PATH to one Slurm version sounds brittle, but Slurm's
 So `scontrol`/`srun` from version *N* interoperate with a `slurmctld` of *N+1* (or
 *N+2/N+3* on 24.11+) — a cluster upgrade does not break nodes built for the prior
 version. When you do want to advance, set the new `SlurmVersion` and redeploy: the
-PostInstall path rebuilds Pyxis for the new version on first boot, and the AMI build
+first-boot path rebuilds Pyxis for the new version on first boot, and the AMI build
 path bakes a new AMI for it. Nothing dynamic is needed on the running node side.
 
 The single-version pin is also why the AMI is *not* a one-AMI-fits-all artifact —

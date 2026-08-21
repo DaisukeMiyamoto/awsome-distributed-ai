@@ -35,7 +35,8 @@ BANNED=(
   $'OnDemandEnableEfa\tremoved\tOnDemandEnableEfa was replaced by OnDemandEfaInterfaceCount (0/1/2)'
   $'GrafanaPublicAccessCidr\t[Rr]enamed|→ ?`?GrafanaAccessCidr\tGrafanaPublicAccessCidr was renamed to GrafanaAccessCidr'
   $'DeployMonitoring=true\tMonitoringStack|internally|nested\tDeployMonitoring (bool) was replaced by MonitoringStack at the deploy-all layer'
-  $'S3 (public )?hosting is not allowed\tNEVERMATCH\tPostInstallScriptUrl now accepts s3:// URLs'
+  $'S3 (public )?hosting is not allowed\tNEVERMATCH\tthe Enroot/Pyxis installer is fetched from S3 by the PCS agent'
+  $'PostInstallScript(Url|Args)\t[Rr]enamed|replaced\tPostInstallScriptUrl/Args were replaced by InstallEnrootPyxis (custom scripts: use PCS node lifecycle actions directly)'
   $'architectures/aws-pcs/iam/\tNEVERMATCH\tthe iam/ directory was removed; use docs/IAM.md + assets/cluster-*-iam.yaml'
   $'aws:pcs:compute-node-group-name\tNEVERMATCH\ttag key does not exist — use `aws pcs list-compute-node-groups` + `tag:aws:pcs:compute-node-group-id`'
   $'Name=tag:Name,Values=PCS-\tNEVERMATCH\tthe Name tag is <ClusterName>-<CngName>; resolve the login node via the PCS API instead'
@@ -49,15 +50,6 @@ for entry in "${BANNED[@]}"; do
   fi
 done
 
-# 2. PostInstallScriptUrl: docs must not say empty = skip (empty now = auto-install;
-#    a single space is the skip sentinel). The literal `PostInstallScriptUrl=""`
-#    (empty string) shown as a skip is the wrong pattern; the correct "single
-#    space to skip" wording is fine.
-hits=$(grep -rnE 'PostInstallScriptUrl=""' "${DOC_GLOBS[@]}" 2>/dev/null || true)
-if [ -n "$hits" ]; then
-  report 'PostInstallScriptUrl="" (empty) shown as skip — empty now auto-installs; use a single space to skip:'
-  echo "$hits" | sed 's/^/    /'
-fi
 
 # 3. Every parameter the deploy-all template declares should be documented in
 #    PARAMETERS.md (catches a new param added without a docs row).
@@ -111,6 +103,6 @@ while IFS= read -r anchor; do
 done < <(grep -oE '\]\(#[a-z0-9-]+\)' README.md | sed -E 's/\]\(#//; s/\)//' | sort -u)
 
 if [ "$fail" -eq 0 ]; then
-  echo "docs lint: PASS (no stale parameter references, no empty=skip wording, all deploy-all params documented, NodeLifecycleActions in lock-step, lifecycle scripts exist, README anchors resolve)"
+  echo "docs lint: PASS (no stale parameter references, all deploy-all params documented, NodeLifecycleActions in lock-step, lifecycle scripts exist, README anchors resolve)"
 fi
 exit $fail

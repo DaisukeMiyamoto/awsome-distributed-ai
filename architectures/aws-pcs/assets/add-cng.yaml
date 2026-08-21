@@ -5,7 +5,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Add a Compute Node Group to a PCS cluster — login nodes, CPU queues, or single-NIC
   GPU queues (e.g. C6i, G5, G6). Mounts the shared FSx filesystems, optionally
-  installs Enroot/Pyxis (PostInstallScriptUrl) and the monitoring exporters
+  installs Enroot/Pyxis (InstallEnrootPyxis) and the monitoring exporters
   (DeployMonitoring/MonitoringRole). A Slurm queue is created only when QueueName
   is set (leave empty for login nodes).
 
@@ -51,10 +51,9 @@ Metadata:
           - MonitoringRepo
           - MonitoringRole
       - Label:
-          default: Post-install script (OnNodeConfigured)
+          default: Container runtime (Enroot/Pyxis)
         Parameters:
-          - PostInstallScriptUrl
-          - PostInstallScriptArgs
+          - InstallEnrootPyxis
       - Label:
           default: Multi-user directory (optional)
         Parameters:
@@ -191,34 +190,26 @@ Parameters:
       - 'compute'
       - 'none'
 
-  PostInstallScriptUrl:
+  InstallEnrootPyxis:
     Type: String
     Description: >-
-      Optional URL of a post-install script run on each node at first boot as
-      a node lifecycle action (PCS equivalent of ParallelCluster
-      OnNodeConfigured). Leave empty (or a single space) to skip. Accepts an
-      s3:// URL (fetched with the instance role — works with a private bucket)
-      or an https:// URL (must be publicly readable, e.g. a GitHub raw URL;
-      plain http:// is not supported by lifecycle actions). The script receives
-      the cluster's SlurmVersion as its FIRST argument, then
-      PostInstallScriptArgs (as a single argument) when set. To install
-      Enroot/Pyxis, point this at scripts/install-enroot-pyxis.sh in your
-      templates bucket (s3://<bucket>/<prefix>scripts/install-enroot-pyxis.sh).
-    Default: ''
-
-  PostInstallScriptArgs:
-    Type: String
-    Description: >-
-      Extra arguments for the post-install script. Passed as a SINGLE argument
-      after the SlurmVersion (lifecycle actions pass arguments verbatim — no
-      shell word-splitting). Empty or a single space passes nothing.
-    Default: ''
+      Install the Enroot/Pyxis container runtime at first boot (an
+      install-enroot-pyxis node lifecycle action running
+      scripts/install-enroot-pyxis.sh from the templates bucket). Set 'false'
+      when the runtime is pre-baked into AmiId, or when you don't need
+      containers. For any other first-boot customization, add your own script
+      to the compute node group's node lifecycle actions — PCS supports this
+      natively, so this template no longer proxies arbitrary scripts.
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
 
   SlurmVersion:
     Type: String
     Description: >-
-      The cluster's Slurm version, exported to the post-install script as
-      PCS_SLURM_VERSION so it can put the matching Slurm CLI bin on slurmd's PATH
+      The cluster's Slurm version, passed to the install-enroot-pyxis lifecycle
+      action so it can put the matching Slurm CLI bin on slurmd's PATH
       (the Pyxis PMI hook needs scontrol). Must match the version the cluster was
       created with.
     Default: '25.11'
@@ -303,12 +294,7 @@ Conditions:
   Has2ndEfaInterface: !Equals [!Ref EfaInterfaceCount, 2]
   DirectoryEnabled: !Not [!Equals [!Ref DirectoryRole, 'none']]
   HasLustre: !Not [!Equals [!Ref FSxLustreFilesystemId, '']]
-  # Empty AND a single space both mean "no post-install": deploy-all uses a
-  # single space as its documented skip sentinel (empty at the deploy-all
-  # layer auto-installs Enroot/Pyxis), and the lifecycle ScriptLocation
-  # pattern would reject ' ' as a URL and fail CNG creation.
-  HasPostInstall: !Not [!Or [!Equals [!Ref PostInstallScriptUrl, ''], !Equals [!Ref PostInstallScriptUrl, ' ']]]
-  HasPostInstallArgs: !Not [!Or [!Equals [!Ref PostInstallScriptArgs, ''], !Equals [!Ref PostInstallScriptArgs, ' ']]]
+  EnrootPyxisEnabled: !Equals [!Ref InstallEnrootPyxis, 'true']
   MonitoringEnabled: !Equals [!Ref DeployMonitoring, 'true']
   HasDcgmImage: !Not [!Equals [!Ref DcgmExporterImage, '']]
 
@@ -411,25 +397,21 @@ Resources:
                 ExecutionPolicy: FIRST_BOOT_ONLY
                 OnError: CONTINUE
               - !Ref AWS::NoValue
-            # Post-install (e.g. Enroot/Pyxis) runs last: it is the slowest
-            # step, and Pyxis is a Slurm SPANK plugin whose plugstack config
-            # must exist before slurmd starts — nodeBootstrapped guarantees
-            # that. Arguments: the cluster's Slurm version first (the node
-            # cannot discover it before slurmd exists), then the user's
-            # PostInstallScriptArgs as a single argument when set. CONTINUE
-            # matches the previous UserData behavior (log, don't kill the
-            # node) and avoids a replace loop on a deterministically failing
-            # user script.
+            # Enroot/Pyxis install runs last: it is the slowest step, and
+            # Pyxis is a Slurm SPANK plugin whose plugstack config must exist
+            # before slurmd starts — nodeBootstrapped guarantees that. The
+            # cluster's Slurm version goes in as the first argument (the node
+            # cannot discover it before slurmd exists). CONTINUE: a failed
+            # install only degrades container support — TERMINATE would risk
+            # a replace loop. The script is idempotent, so it is a fast no-op
+            # on an AMI with the runtime pre-baked.
             - !If
-              - HasPostInstall
-              - Name: post-install
+              - EnrootPyxisEnabled
+              - Name: install-enroot-pyxis
                 ScriptSource:
-                  ScriptLocation: !Ref PostInstallScriptUrl
-                Arguments: !If
-                  - HasPostInstallArgs
-                  - - !Ref SlurmVersion
-                    - !Ref PostInstallScriptArgs
-                  - - !Ref SlurmVersion
+                  ScriptLocation: !Sub 's3://${S3BucketName}/${S3KeyPrefix}scripts/install-enroot-pyxis.sh'
+                Arguments:
+                  - !Ref SlurmVersion
                 ExecutionPolicy: FIRST_BOOT_ONLY
                 OnError: CONTINUE
               - !Ref AWS::NoValue

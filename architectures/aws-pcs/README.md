@@ -27,7 +27,7 @@ A default deployment (`pcs-ml-cluster-deploy-all.yaml`) provisions:
 - Login node group (public subnet) with the monitoring stack (Prometheus + Grafana + Nginx); SSH/Grafana can be opened to a trusted CIDR
 - CPU compute node group (private subnet); EFA can be enabled for HPC/MPI workloads
 - Optional GPU (P5/P6) node group with multi-NIC EFA, plus DCGM Exporter for the GPU dashboards
-- Enroot/Pyxis container runtime installed at first boot via `PostInstallScriptUrl` (or pre-baked into a custom AMI you build separately and pass as `AmiId`)
+- Enroot/Pyxis container runtime installed at first boot (`InstallEnrootPyxis`, on by default; or pre-baked into a custom AMI you build separately and pass as `AmiId`)
 
 Every node runs on the AWS-managed **PCS-Ready DLAMI** (NVIDIA driver, CUDA, PCS agent,
 and Slurm pre-installed), so no custom AMI build is required.
@@ -151,7 +151,7 @@ complete reference see [PARAMETERS.md](./docs/PARAMETERS.md).
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `PostInstallScriptUrl` | *(empty → auto)* | First-boot script on every node; empty (default) auto-installs the Enroot/Pyxis container runtime from your templates bucket. Point at your own script to customize. See [PARAMETERS.md](./docs/PARAMETERS.md) |
+| `InstallEnrootPyxis` | `true` | Install the Enroot/Pyxis container runtime on every node at first boot. Set `false` when it's pre-baked into `AmiId`. For other first-boot customization, add your own script to the node group's [node lifecycle actions](https://docs.aws.amazon.com/pcs/latest/userguide/cng-node-lifecycle-actions.html). See [PARAMETERS.md](./docs/PARAMETERS.md) |
 
 **See [PARAMETERS.md](./docs/PARAMETERS.md) for the complete parameter reference** (all
 console parameter groups, with every default). The concept guides below cover the
@@ -616,7 +616,7 @@ for roles, deploy instructions, security considerations, and the verification ma
 ### 8.5 Pre-baking Enroot/Pyxis into a custom AMI
 
 The all-in-one template installs Enroot/Pyxis at **first boot** via
-`PostInstallScriptUrl` (no Image Builder step). For **frequent scaling** in production,
+the `install-enroot-pyxis` lifecycle action (no Image Builder step). For **frequent scaling** in production,
 pre-baking Enroot/Pyxis into a custom AMI drops node boot from ~8–12 min to ~3 min and
 pins every node to a deterministic state. It's a standalone path: build the AMI once with
 [`pcs-ready-dlami-with-enroot-pyxis.yaml`](./assets/pcs-ready-dlami-with-enroot-pyxis.yaml)
@@ -719,7 +719,7 @@ pcs-ml-cluster-deploy-all.yaml                    ← user deploys this
 │     └─ Node lifecycle actions run external scripts:
 │          ├─ needrestart-guard.sh, mount-openzfs-home.sh, mount-lustre-fsx.sh
 │          ├─ setup-directory.sh server (when DirectoryRole=server)
-│          ├─ PostInstallScriptUrl (default: install-enroot-pyxis.sh)
+│          ├─ install-enroot-pyxis.sh (InstallEnrootPyxis=true)
 │          └─ install-monitoring.sh (nodeReady)
 │
 ├─► add-cng.yaml (compute)                        ← CPU queue (dynamic scaling 0→N)
@@ -730,7 +730,7 @@ pcs-ml-cluster-deploy-all.yaml                    ← user deploys this
 │     └─ Node lifecycle actions run external scripts:
 │          ├─ needrestart-guard.sh, mount-openzfs-home.sh, mount-lustre-fsx.sh
 │          ├─ setup-directory.sh client (when DirectoryRole=client)
-│          ├─ PostInstallScriptUrl (same as login)
+│          ├─ install-enroot-pyxis.sh (same as login)
 │          └─ install-monitoring.sh (nodeReady)
 │
 └─► add-cng-p5.yaml / add-cng-p6-b200.yaml       ← GPU queue (optional)

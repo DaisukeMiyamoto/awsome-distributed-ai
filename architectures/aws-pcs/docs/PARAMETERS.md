@@ -4,7 +4,7 @@ Full parameter list for the all-in-one deployment template. The sections and the
 match the CloudFormation console's parameter groups exactly (the console shows friendly
 labels via `AWS::CloudFormation::Interface`). Defaults give the most common production
 setup — the latest PCS-Ready Deep Learning AMI auto-resolved from SSM, Enroot/Pyxis
-installed at first boot via `PostInstallScriptUrl`, monitoring enabled — so a default
+installed at first boot via `InstallEnrootPyxis`, monitoring enabled — so a default
 deploy only needs the Availability Zone (`PrimarySubnetAZ`). To pre-bake Enroot/Pyxis into
 a custom AMI for faster boots, build it separately with
 [`pcs-ready-dlami-with-enroot-pyxis.yaml`](../README.md#85-pre-baking-enrootpyxis-into-a-custom-ami)
@@ -91,8 +91,7 @@ Enroot/Pyxis container runtime; point it at your own script to customize.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `PostInstallScriptUrl` | *(empty → auto)* | Script run on every node at first boot (PCS equivalent of ParallelCluster `OnNodeConfigured`). **Empty (default) auto-installs Enroot/Pyxis** from `s3://<S3BucketName>/<S3KeyPrefix>scripts/install-enroot-pyxis.sh` (fetched with the instance role, so it works with a **private** bucket — no public S3 needed). Accepts an `s3://` URL (instance-role fetch) or an `https://` URL (publicly readable, e.g. GitHub raw; plain `http://` is not supported by lifecycle actions). The script receives the cluster's `SlurmVersion` as its first argument, then `PostInstallScriptArgs` (as a single argument) when set. Set to a single space to skip. Idempotent: a no-op if Enroot/Pyxis is already pre-baked into `AmiId` |
-| `PostInstallScriptArgs` | *(empty)* | Arguments passed to the post-install script. Normally left empty — most users never touch the container-runtime parameters |
+| `InstallEnrootPyxis` | `true` | Install the Enroot/Pyxis container runtime on every node at first boot (an `install-enroot-pyxis` node lifecycle action running `scripts/install-enroot-pyxis.sh` from the templates bucket — instance-role fetch, so a **private** bucket works). Set `false` when the runtime is pre-baked into `AmiId` or containers aren't needed (the installer is idempotent either way — a fast no-op on a pre-baked AMI). PCS now supports [node lifecycle actions](https://docs.aws.amazon.com/pcs/latest/userguide/cng-node-lifecycle-actions.html) natively, so for any other first-boot customization add your own script to the compute node group's lifecycle actions instead of proxying it through this stack |
 
 ## 6. FSx Storage (`/fsx` and `/home`)
 

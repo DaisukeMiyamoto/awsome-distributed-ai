@@ -41,8 +41,8 @@ aws s3 sync assets/ "s3://${BUCKET}/${PREFIX}" \
 
 This uploads both the CloudFormation templates (`*.yaml`) and the boot scripts (`*.sh`)
 in one command. The scripts live under `assets/scripts/`, so they land at
-`s3://${BUCKET}/${PREFIX}scripts/` — which is exactly where the default
-`PostInstallScriptUrl` looks (`s3://<S3BucketName>/<S3KeyPrefix>scripts/install-enroot-pyxis.sh`).
+`s3://${BUCKET}/${PREFIX}scripts/` — which is exactly where the node lifecycle
+actions fetch them (e.g. `s3://<S3BucketName>/<S3KeyPrefix>scripts/install-enroot-pyxis.sh`).
 Re-run this sync after every change you want to test.
 
 ## 3. Deploy pointing at your bucket
@@ -97,7 +97,7 @@ aws cloudformation describe-stack-events --stack-name pcs-test --region ${REGION
 
 Typical timeline (~25-30 min): Prerequisites (VPC + FSx) ~10 min → Cluster ~5 min →
 Login + compute node groups (parallel) ~5 min → node boot + lifecycle actions
-(mounts, directory, post-install, monitoring) ~3-8 min.
+(mounts, directory, Enroot/Pyxis, monitoring) ~3-8 min.
 
 ## 5. Connect and verify
 
