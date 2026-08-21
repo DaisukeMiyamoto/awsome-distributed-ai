@@ -250,7 +250,13 @@ Reference numbers — p6-b200.48xlarge, 19200 GiB PERSISTENT_2 @ tier 250
 | ior write (16 ranks, file-per-proc) | 4740 MiB/s | 591 MiB/s | **8.0×** |
 | fio write (8 jobs, 1M, direct) | 5477 MB/s | 620 MB/s | **8.8×** |
 | fio read (8 jobs, 1M, direct) | 7754 MB/s | 620 MB/s | **12.5×** |
-| mdtest (8 ranks, create/stat/remove per-s) | 10303 / 17666 / 12453 | — (metadata path unaffected) | — |
+| mdtest create (8 ranks, mean of 3) | 11752 ops/s | 12103 ops/s | ~parity |
+| mdtest stat (8 ranks, mean of 3) | 16291 ops/s | 13353 ops/s | +22%¹ |
+| mdtest removal (8 ranks, mean of 3) | 12578 ops/s | 12121 ops/s | ~parity |
+
+¹ stat is latency-bound pure-RPC traffic (metadata RPCs ride LNet too), so a
+modest EFA advantage is plausible — but the run-to-run stddev (~10%) overlaps;
+treat metadata as "no regression, possible small win", not an EFA headline.
 
 The TCP path bottlenecks on the single ksocklnd connection over the primary
 ENA (~5 Gbps); EFA spreads across all efa NIs and reaches (and bursts past)
