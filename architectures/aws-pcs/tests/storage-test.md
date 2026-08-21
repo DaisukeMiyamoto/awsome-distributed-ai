@@ -138,3 +138,138 @@ benchmark documented in
 **A >10% degradation blocks the change.**
 
 ---
+
+## Test 10b: FSx Lustre over EFA — client verification + benchmark
+
+Validates that `OnDemandEnableFSxLustreEfaClient` / `PseriesEnableFSxLustreEfaClient`
+actually put the EFA transport (and GDS on GPU nodes) in the Lustre data path —
+not just that the config script ran. Requires a cluster deployed with
+`FSxLustreEnableEfa=true` (+ `Capacity` at the EFA minimum for the throughput
+tier) and the client toggle on the CNG under test.
+
+> **Interpreting throughput numbers.** The filesystem's aggregate throughput
+> cap is `Capacity × PerUnitStorageThroughput` (e.g. 19200 GiB × 250 MB/s/TiB
+> ≈ 4.8 GB/s). At the tier-250 minimum, both transports can approach the cap —
+> the EFA advantage grows with the tier (it targets single-client rates beyond
+> ~10 GB/s at tiers 500/1000). Always report the cap next to the numbers.
+
+Verification is layered — run all four on a node of the EFA-enabled CNG:
+
+### Layer 1 — configuration (lifecycle action ran, LNet has EFA NIDs)
+
+```bash
+sudo tail -5 /var/log/amazon/pcs/lifecycle/actions/nodeBootstrapped/install-fsx-lustre-efa.log
+# "done"; on GPU nodes the log shows "--optimized-for-gds"
+sudo lnetctl net show | grep -c "@efa"
+# counts the LOCAL efa NIs (net show lists only local interfaces):
+# p6-b200 = 8, p6-b300 = 16, p5/p5e/p5en = 8, 2-card CPU HPC = 2, single-card = 1
+systemctl status configure-efa-fsx-lustre-client.service --no-pager | head -3
+# loaded + enabled (re-applies the config on reboot)
+```
+
+### Layer 2 — peer discovery + selection policy
+
+`lctl get_param osc.*.import` shows `current_connection: ...@tcp` **even when
+EFA is carrying the data** — that field is the peer's primary NID label, and
+FSx servers identify by their tcp NID. Multi-rail picks the transport per
+message, so check instead that (a) LNet discovered the server's efa NID and
+(b) the udsp policy prefers efa:
+
+```bash
+sudo lnetctl peer show | grep -B1 "@efa"
+#     - primary nid: 10.x.x.x@tcp
+#         - nid: x.x.x.x@efa        <- the FSx server advertises an efa NID
+sudo lnetctl udsp show
+#     - src: efa / priority: 0      <- installed by setup.sh (prefer efa)
+```
+
+A missing `@efa` peer NID means discovery fell back (wrong AZ, non-EFA
+filesystem, or the EFA config ran after the mount). The verdict on whether
+EFA actually carries the data comes from Layer 3.
+
+### Layer 3 — traffic attribution (bytes actually flow over EFA)
+
+```bash
+sudo lnetctl stats > /tmp/lnet-before
+dd if=/dev/zero of=/fsx/efa-probe bs=1M count=8192 oflag=direct
+sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
+dd if=/fsx/efa-probe of=/dev/null bs=1M iflag=direct
+sudo lnetctl stats > /tmp/lnet-after
+diff /tmp/lnet-before /tmp/lnet-after   # send/recv byte counters grow by ~16 GiB
+rm -f /fsx/efa-probe
+```
+
+For per-net attribution, `sudo lnetctl net show -v` before/after shows the
+counters on the `efa` net growing while `tcp` stays ~flat.
+
+### Layer 4 — benchmark A/B (EFA vs TCP on the same node + filesystem)
+
+Install the tools once (Ubuntu 24.04 repos):
+
+```bash
+sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y \
+  fio openmpi-bin libopenmpi-dev make gcc
+```
+
+> Ubuntu 24.04 has no `ior` package — build it (`mdtest` comes with it):
+> `curl -fsSLO https://github.com/hpc/ior/releases/download/4.0.0/ior-4.0.0.tar.gz
+> && tar xzf ior-4.0.0.tar.gz && cd ior-4.0.0 && ./configure && make -j && sudo make install`
+> (needs `libopenmpi-dev make gcc`). Use **ior for writes and fio (direct=1)
+> for reads**: ior's same-node write-then-read hits the client page cache, and
+> its `--posix.odirect` read aborts on Lustre (verified rc=255).
+
+**B = EFA (as deployed):**
+
+```bash
+mkdir -p /fsx/iorbench && cd /fsx/iorbench
+mpirun -np 16 --oversubscribe ior -w -t 1m -b 2g -F -e -g -o /fsx/iorbench/ior.dat
+fio --name=seqw --directory=/fsx/iorbench --rw=write --bs=1M --size=4G \
+    --numjobs=8 --direct=1 --group_reporting --unlink=1
+fio --name=seqr --directory=/fsx/iorbench --rw=read  --bs=1M --size=4G \
+    --numjobs=8 --direct=1 --group_reporting
+```
+
+**A = TCP (remove the efa NIs from LNet; traffic falls back to TCP — no reboot):**
+
+```bash
+for dev in $(ls /sys/class/infiniband/); do sudo lnetctl net del --net efa --if "$dev"; done
+sudo lnetctl net show | grep -c "@efa"        # 0
+echo 3 | sudo tee /proc/sys/vm/drop_caches
+# rerun the same ior + fio commands (new -o path for ior)
+```
+
+Re-adding EFA: `sudo systemctl restart configure-efa-fsx-lustre-client.service`
+(verified to restore all NIs). Record both runs side by side with the
+filesystem cap; **EFA must be >= TCP on both write and read**.
+
+Reference numbers — p6-b200.48xlarge, 19200 GiB PERSISTENT_2 @ tier 250
+(nominal aggregate ~4.8 GB/s), single client, 2026-08-21:
+
+| Benchmark | EFA | TCP | ratio |
+|---|---|---|---|
+| ior write (16 ranks, file-per-proc) | 4740 MiB/s | 591 MiB/s | **8.0×** |
+| fio write (8 jobs, 1M, direct) | 5477 MB/s | 620 MB/s | **8.8×** |
+| fio read (8 jobs, 1M, direct) | 7754 MB/s | 620 MB/s | **12.5×** |
+| mdtest (8 ranks, create/stat/remove per-s) | 10303 / 17666 / 12453 | — (metadata path unaffected) | — |
+
+The TCP path bottlenecks on the single ksocklnd connection over the primary
+ENA (~5 Gbps); EFA spreads across all efa NIs and reaches (and bursts past)
+the filesystem's nominal cap.
+
+### GDS (GPU nodes, optional)
+
+With `--optimized-for-gds` configured, compare GDS vs POSIX reads using the
+CUDA-bundled gdsio (path varies by CUDA version):
+
+```bash
+GDSIO=$(ls /usr/local/cuda*/gds/tools/gdsio | head -1)
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 0 -I 1   # write
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 0 -I 0   # GDS read
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 2 -I 0   # CPU-bounce read (comparison)
+```
+
+`-x 0` is the GPUDirect path; `-x 2` bounces through CPU memory. GDS read at
+or above the CPU-bounce rate confirms the nvidia-fs/cuFile path is active.
+Reference (same setup as above): GPUD write 6.34 GiB/s, GPUD read 5.75 GiB/s,
+CPU-bounce read 5.67 GiB/s — parity at this filesystem tier; the GDS latency
+advantage grows with the throughput tier.

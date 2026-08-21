@@ -37,6 +37,8 @@ entries:
     key: aws-pcs/pcs-ready-dlami-with-enroot-pyxis.yaml
   - source: architectures/aws-pcs/assets/scripts/install-enroot-pyxis.sh
     key: aws-pcs/scripts/install-enroot-pyxis.sh
+  - source: architectures/aws-pcs/assets/scripts/install-fsx-lustre-efa.sh
+    key: aws-pcs/scripts/install-fsx-lustre-efa.sh
   - source: architectures/aws-pcs/assets/scripts/install-monitoring.sh
     key: aws-pcs/scripts/install-monitoring.sh
   - source: architectures/aws-pcs/assets/scripts/ldap-add-user.sh

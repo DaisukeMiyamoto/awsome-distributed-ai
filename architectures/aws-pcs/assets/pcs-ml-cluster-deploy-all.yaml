@@ -40,6 +40,7 @@ Metadata:
           - OnDemandQueueName
           - OnDemandEfaInterfaceCount
           - OnDemandPlacementGroupName
+          - OnDemandEnableFSxLustreEfaClient
       - Label:
           default: "4. GPU Compute Node Group - P5/P6 Series (Optional)"
         Parameters:
@@ -50,6 +51,7 @@ Metadata:
           - CapacityReservationId
           - PseriesCngName
           - PseriesQueueName
+          - PseriesEnableFSxLustreEfaClient
       - Label:
           default: "5.1. Additional Cluster Configuration: Monitoring"
         Parameters:
@@ -137,6 +139,8 @@ Metadata:
         default: "EFA interfaces on CPU queue (0 = off, 1 or 2 for HPC types)"
       OnDemandPlacementGroupName:
         default: "Existing placement group name (empty = auto-create when EFA on)"
+      OnDemandEnableFSxLustreEfaClient:
+        default: "CPU queue: FSx Lustre over EFA (requires EFA-enabled filesystem)"
       DeployPseriesCNG:
         default: "Deploy GPU (P5/P6) queue"
       PseriesInstanceType:
@@ -151,6 +155,8 @@ Metadata:
         default: "GPU node group name"
       PseriesQueueName:
         default: "GPU queue name"
+      PseriesEnableFSxLustreEfaClient:
+        default: "GPU queue: FSx Lustre over EFA + GDS (requires EFA-enabled filesystem)"
       Capacity:
         default: "FSx for Lustre (/fsx) capacity (GiB)"
       LustreDeploymentType:
@@ -511,6 +517,19 @@ Parameters:
     Default: 0
     AllowedValues: [0, 1, 2]
 
+  OnDemandEnableFSxLustreEfaClient:
+    Type: String
+    Description: >-
+      Configure LNet over EFA for the FSx for Lustre client on the CPU
+      (on-demand) node group. Requires FSxLustreEnableEfa=true (EFA-enabled
+      filesystem, PERSISTENT_2) and OnDemandEfaInterfaceCount > 0 with an
+      EFA-capable instance type; nodes without EFA skip cleanly and mount
+      over TCP.
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
   OnDemandPlacementGroupName:
     Type: String
     Description: >-
@@ -567,6 +586,18 @@ Parameters:
     Description: Minimum number of instances for P-series compute node group (must be 0 for testing without Capacity Reservation)
     Default: 0
     MinValue: 0
+
+  PseriesEnableFSxLustreEfaClient:
+    Type: String
+    Description: >-
+      Configure LNet over EFA for the FSx for Lustre client on the GPU
+      (P-series) node group — enables the EFA transport to /fsx and
+      GPUDirect Storage (GDS). Requires FSxLustreEnableEfa=true (EFA-enabled
+      filesystem, PERSISTENT_2) in the same AZ.
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
 
   CapacityReservationId:
     Type: String
@@ -860,6 +891,7 @@ Resources:
         SlurmVersion: !Ref SlurmVersion
         MonitoringRole: compute
         InstallEnrootPyxis: !Ref InstallEnrootPyxis
+        EnableFSxLustreEfaClient: !Ref PseriesEnableFSxLustreEfaClient
         DirectoryRole: !If [DirectoryEnabled, 'client', 'none']
         DirectoryDomainSuffix: !Ref DirectoryDomainSuffix
         S3BucketName: !Ref S3BucketName
@@ -901,6 +933,7 @@ Resources:
         SlurmVersion: !Ref SlurmVersion
         MonitoringRole: compute
         InstallEnrootPyxis: !Ref InstallEnrootPyxis
+        EnableFSxLustreEfaClient: !Ref PseriesEnableFSxLustreEfaClient
         DirectoryRole: !If [DirectoryEnabled, 'client', 'none']
         DirectoryDomainSuffix: !Ref DirectoryDomainSuffix
         S3BucketName: !Ref S3BucketName
@@ -942,6 +975,7 @@ Resources:
         SlurmVersion: !Ref SlurmVersion
         MonitoringRole: compute
         InstallEnrootPyxis: !Ref InstallEnrootPyxis
+        EnableFSxLustreEfaClient: !Ref PseriesEnableFSxLustreEfaClient
         DirectoryRole: !If [DirectoryEnabled, 'client', 'none']
         DirectoryDomainSuffix: !Ref DirectoryDomainSuffix
         S3BucketName: !Ref S3BucketName

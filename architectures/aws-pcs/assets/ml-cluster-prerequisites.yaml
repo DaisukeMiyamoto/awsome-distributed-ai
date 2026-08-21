@@ -141,9 +141,9 @@ Parameters:
       PERSISTENT_2 SSD only — a Rule below fails the stack at create time when
       combined with PERSISTENT_1 (rather than silently ignoring the opt-in).
       The headline feature is GPUDirect Storage (GDS) for P5/P5e/P5en/P6-B200
-      GPU clients, which DMAs file data straight into GPU memory (the NVIDIA
-      nvidia-fs/cuFile stack must be installed on the client — currently a
-      ROADMAP follow-up). EFA-capable CPU CNGs (OnDemandEfaInterfaceCount > 0) get
+      GPU clients, which DMAs file data straight into GPU memory (enable the
+      client side with OnDemandEnableFSxLustreEfaClient /
+      PseriesEnableFSxLustreEfaClient). EFA-capable CPU CNGs (OnDemandEfaInterfaceCount > 0) get
       the EFA transport path to storage as a secondary benefit, useful when a
       single client is pushing past ~10 GBps. **EFA-enabled Lustre has a
       much larger minimum storage capacity than the non-EFA default**: at

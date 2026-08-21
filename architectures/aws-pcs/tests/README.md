@@ -23,7 +23,7 @@ LDAP users).
 | 4-6 | **Compute** | CPU queue, GPU families (G/P5/P6), NCCL multi-node EFA | [`compute-test.md`](./compute-test.md) | Every PR |
 | 7, 7b | **Training** | FSDP Llama-2 7B (HF-streamed) + Megatron-LM GPT-3 (TP/PP/DP, local data) | [`training-test.md`](./training-test.md) | GPU PRs |
 | 9 | **HPC EFA** | EFA on CPU instances (hpc6a/hpc7a/hpc8a), OSU benchmarks | [`hpc-efa-test.md`](./hpc-efa-test.md) | EFA wiring changes |
-| 10 | **Storage** | FSx health check + performance regression test (noatime benchmark) | [`storage-test.md`](./storage-test.md) | FSx / mount changes |
+| 10, 10b | **Storage** | FSx health check + performance regression test (noatime benchmark); Lustre-over-EFA client verification (LNet/OSC/traffic layers) + ior/fio A/B and gdsio | [`storage-test.md`](./storage-test.md) | FSx / mount / EFA-client changes |
 | 11-12 | **Multi-user** | OpenLDAP directory + Slurm managed accounting | [`multi-user-test.md`](./multi-user-test.md) | Directory / accounting changes |
 | 13 | **GPU health** | GPU Cluster Health Check suite (DCGM, EFA, NVLink, NCCL thresholds) | [`gpu-healthcheck-test.md`](./gpu-healthcheck-test.md) | GPU CNG deploys |
 | 14 | **IAM** | cluster-admin deploys+deletes (no `iam:CreatePolicy`); cluster-user is SSM-login-only and can't read the LDAP password | [`iam-test.md`](./iam-test.md) | IAM policy changes |

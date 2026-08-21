@@ -51,6 +51,10 @@ Metadata:
           default: Container runtime (Enroot/Pyxis)
         Parameters:
           - InstallEnrootPyxis
+      - Label:
+          default: FSx for Lustre EFA client (optional)
+        Parameters:
+          - EnableFSxLustreEfaClient
 
 Parameters:
   CapacityReservationId:
@@ -217,6 +221,21 @@ Parameters:
       - 'true'
       - 'false'
 
+  EnableFSxLustreEfaClient:
+    Type: String
+    Description: >-
+      Configure LNet over EFA for the FSx for Lustre client at first boot (an
+      install-fsx-lustre-efa lifecycle action running before the /fsx mount),
+      enabling the EFA transport to Lustre — and GPUDirect Storage on GPU
+      nodes. Requires the filesystem to be created with EfaEnabled
+      (FSxLustreEnableEfa=true on the prerequisites stack) and in the SAME AZ
+      as this node group; the node needs an EFA-capable instance type (the
+      script skips cleanly otherwise, keeping the TCP mount).
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
   SlurmVersion:
     Type: String
     Description: >-
@@ -272,6 +291,7 @@ Conditions:
   DirectoryEnabled: !Not [!Equals [!Ref DirectoryRole, 'none']]
   HasLustre: !Not [!Equals [!Ref FSxLustreFilesystemId, '']]
   EnrootPyxisEnabled: !Equals [!Ref InstallEnrootPyxis, 'true']
+  LustreEfaClientEnabled: !And [!Condition HasLustre, !Equals [!Ref EnableFSxLustreEfaClient, 'true']]
   MonitoringEnabled: !Equals [!Ref DeployMonitoring, 'true']
   HasDcgmImage: !Not [!Equals [!Ref DcgmExporterImage, '']]
 
@@ -342,6 +362,19 @@ Resources:
                 - !Ref FSxOpenZFSFilesystemId
               ExecutionPolicy: EVERY_BOOT
               OnError: TERMINATE
+            # EFA client config must precede the Lustre mount so LNet/EFA is
+            # up when the filesystem connects (first boot; reboots are handled
+            # by the systemd unit setup.sh installs + the wait in
+            # mount-lustre-fsx.sh). CONTINUE: on failure the mount falls back
+            # to TCP — slower storage beats a replace loop.
+            - !If
+              - LustreEfaClientEnabled
+              - Name: install-fsx-lustre-efa
+                ScriptSource:
+                  ScriptLocation: !Sub 's3://${S3BucketName}/${S3KeyPrefix}scripts/install-fsx-lustre-efa.sh'
+                ExecutionPolicy: FIRST_BOOT_ONLY
+                OnError: CONTINUE
+              - !Ref AWS::NoValue
             - !If
               - HasLustre
               - Name: mount-lustre-fsx

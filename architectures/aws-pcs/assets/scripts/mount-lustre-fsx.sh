@@ -48,6 +48,24 @@ if mountpoint -q /fsx; then
   exit 0
 fi
 
+# When the EFA client config service exists (install-fsx-lustre-efa ran on
+# first boot), wait for it before mounting so a REBOOT mount doesn't race
+# LNet/EFA setup. Ordering only — if the service fails or times out we mount
+# anyway and Lustre falls back to TCP (a working slower mount beats no mount;
+# same rationale as the HyperPod x-systemd.after= ordering).
+# The unit is a oneshot: "activating" while running, then back to "inactive"
+# (success) or "failed". Only an in-flight run is worth waiting for — on first
+# boot the preceding lifecycle action has already configured LNet inline, and
+# a finished unit needs no wait.
+EFA_UNIT=configure-efa-fsx-lustre-client.service
+if systemctl list-unit-files "$EFA_UNIT" --no-legend 2>/dev/null | grep -q "$EFA_UNIT"; then
+  waited=0
+  while [ "$(systemctl is-active "$EFA_UNIT" 2>/dev/null)" = "activating" ] && [ "$waited" -lt 180 ]; do
+    sleep 5; waited=$((waited+5))
+  done
+  echo "EFA client config unit: $(systemctl is-active "$EFA_UNIT" 2>/dev/null) after ${waited}s wait (mounting; TCP fallback applies on EFA failure)"
+fi
+
 # Bounded retry: the FSx endpoint may not be reachable/resolvable yet on a fresh
 # node and `mount` can fail instantly. This action runs with OnError:TERMINATE,
 # so a bare failure replaces the node into the same window — retry here so

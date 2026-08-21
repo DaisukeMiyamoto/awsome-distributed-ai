@@ -70,7 +70,13 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   Document the minimum deploying-principal permissions (and provide a ready-made policy or
   a deploy-role CloudFormation/managed policy), so users in restricted accounts can grant
   exactly what's required instead of needing broad admin.
-- [ ] 🟡 **Client-side Lustre-on-EFA + GDS support (P5 / P5e / P5en / P6-B200).**
+- [x] 🟡 **Client-side Lustre-on-EFA + GDS support (P5 / P5e / P5en / P6-B200).**
+  Done: `scripts/install-fsx-lustre-efa.sh` runs as a lifecycle action before the
+  `/fsx` mount, gated by `OnDemandEnableFSxLustreEfaClient` /
+  `PseriesEnableFSxLustreEfaClient` (GDS auto-enabled on GPU nodes). Verified on
+  p6-b200 + 19200 GiB PERSISTENT_2 EFA filesystem: ior/fio show 8-12x over the
+  TCP path, gdsio confirms the GPUDirect path; procedure + reference numbers in
+  tests/storage-test.md Test 10b. *(Original scope below; mdtest covered.)*
   `FSxLustreEnableEfa=true` configures the *FSx server side* (PERSISTENT_2 EfaEnabled).
   The *client side* — installing the Lustre client + EFA modules, configuring LNet over
   EFA via the AWS-provided `setup.sh --optimized-for-gds`, and (for GDS) building/loading
