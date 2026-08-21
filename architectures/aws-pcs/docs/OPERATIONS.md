@@ -277,10 +277,10 @@ The mount options above handle metadata behaviour. For I/O throughput and
 metadata IOPS, the following `lctl` runtime tunables are recommended for ML
 training workloads. They are **not set by the templates by default** (to keep
 the base minimal and avoid surprising users), but can be added to a
-post-install script or run manually on the login/compute nodes.
+custom lifecycle action or run manually on the login/compute nodes.
 
-These settings do not persist across reboot — add them to a post-install
-script or an `EVERY_BOOT` lifecycle action if you want them permanent.
+These settings do not persist across reboot — add them to an `EVERY_BOOT`
+lifecycle action if you want them permanent.
 
 ```bash
 # --- Data path (OSC): controls per-OST throughput ---
@@ -449,7 +449,7 @@ The `cpuset.*` "No space left on device" message is a kernel-level error that
 surfaces when systemd hands the cgroup controller an empty cpuset value; the ensuing
 forced restart of slurmd is what actually breaks the prolog handshake. Nothing the PCS
 templates or this repo's install scripts touch is in the path — `/etc/default/slurmd`
-is written to by `install-enroot-pyxis.sh` but post-install completes before slurmd's
+is written to by `install-enroot-pyxis.sh`, but that lifecycle action completes before slurmd's
 first start, and no slurmd unit / cgroup config is modified afterwards.
 
 **Workaround.**
@@ -461,8 +461,8 @@ first start, and no slurmd unit / cgroup config is modified afterwards.
   prolog path while a sibling is still cold.
 
 **Why we don't paper over it.** The trigger lives below this repo's code (PCS
-bootstrap + systemd + slurmd 25.05/25.11 cgroup-v2 handling). Wrapping the post-install
-or the install script wouldn't change the timing of the systemd cgroup setup. The
+bootstrap + systemd + slurmd 25.05/25.11 cgroup-v2 handling). Wrapping the
+install script wouldn't change the timing of the systemd cgroup setup. The
 cleanest mitigation is upstream — recording it here so users seeing it know the
 workaround and the next contributor doesn't waste time looking for a bug in this PR's
 scripts.
@@ -503,3 +503,19 @@ For a new production deploy:
 - Default `DcgmExporterImage` covers H100/B200/B300; override only to pin a different build
 - Minimum-CIDR `GrafanaAccessCidr` if used at all; otherwise empty (SSM port-forward)
 - Throughput values that match the chosen FSx deployment types
+
+## 8. Upgrading from UserData-based templates (pre-lifecycle-actions)
+
+Node setup moved from cloud-init UserData to [PCS node lifecycle
+actions](https://docs.aws.amazon.com/pcs/latest/userguide/cng-node-lifecycle-actions.html).
+Existing deployed stacks keep working as-is (their nodes carry the old
+UserData); the changes below apply when you **update a stack to, or deploy
+with, the current templates**.
+
+| Change | What to do |
+|---|---|
+| `PostInstallScriptUrl` / `PostInstallScriptArgs` replaced by **`InstallEnrootPyxis`** (`true`/`false`) | The generic hook only ever shipped the Enroot/Pyxis installer. Was skipping with a single space? Set `InstallEnrootPyxis=false`. Running a **custom** script? Attach it to the compute node group's node lifecycle actions directly — PCS runs it natively, with per-script logs and error policy. |
+| The AMI must carry **PCS agent >= 1.5.0-1** | PCS-Ready DLAMI builds since 2026-07-20 qualify ([PCS-READY-DLAMI.md](./PCS-READY-DLAMI.md)); the default SSM `latest` resolution always does. Re-base pinned or custom AMIs built off an older base before updating. |
+| Boot logs moved to `/var/log/amazon/pcs/lifecycle/actions/<stage>/<name>.log` (root-readable) | Update runbooks that read `/var/log/pcs-post-install.log`, `monitoring-install.log`, or `directory-setup.log`. The agent's own download/orchestration log is `.../actions/executor.log`. |
+| A failed `/home` or `/fsx` mount now **terminates and replaces the node** | Previously the node stayed in service without shared storage. An FSx-side problem now shows up as node churn — check the mount script's lifecycle log on a surviving node and the CNG's instance history. |
+| Custom-script argument contract | The Enroot/Pyxis installer receives the cluster's `SlurmVersion` as its first argument (`PCS_SLURM_VERSION` env still honored on the custom-AMI build path). |

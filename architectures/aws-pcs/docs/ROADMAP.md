@@ -75,7 +75,7 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   The *client side* — installing the Lustre client + EFA modules, configuring LNet over
   EFA via the AWS-provided `setup.sh --optimized-for-gds`, and (for GDS) building/loading
   `nvidia-fs.ko` with `cufile.json` — is currently out of scope and not handled by
-  `install-enroot-pyxis.sh`. Add a new opt-in post-install path
+  `install-enroot-pyxis.sh`. Add a new opt-in lifecycle-action script
   (e.g. `scripts/install-fsx-lustre-efa.sh`) that runs the
   [official FSx EFA client setup](https://docs.aws.amazon.com/fsx/latest/LustreGuide/configure-efa-clients.html)
   and the GDS driver build, surface a `OnDemandEnableFSxLustreEfaClient` /

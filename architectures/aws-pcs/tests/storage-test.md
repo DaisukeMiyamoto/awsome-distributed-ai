@@ -10,7 +10,7 @@ regression/improvement testing.
 Validates that both shared filesystems (Lustre on `/fsx`, OpenZFS on `/home`)
 mount cleanly on every node, are usable, and that the FSx-side configuration
 matches what the template asked for. Most of this is exercised implicitly by
-Tests 1–9 (the post-install script, monitoring stack, OSU / FSDP all touch
+Tests 1–9 (the Enroot/Pyxis install, monitoring stack, OSU / FSDP all touch
 `/fsx`); this test is the explicit health check to run after a fresh deploy
 or after touching `ml-cluster-prerequisites.yaml` / FSx-related parameters.
 

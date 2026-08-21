@@ -166,7 +166,7 @@ needed. Enroot 3.5.0 + Pyxis 0.20.0 are layered on at first boot via
 [`assets/scripts/install-enroot-pyxis.sh`](./assets/scripts/install-enroot-pyxis.sh)
 (~8–12 min boot). For **frequent scaling**, pre-bake Enroot/Pyxis into a custom DLAMI
 once with [§8.5](#85-pre-baking-enrootpyxis-into-a-custom-ami) and pass that
-`ami-xxx` as `AmiId` (~3 min boot, deterministic state). The post-install hook is
+`ami-xxx` as `AmiId` (~3 min boot, deterministic state). The installer is
 idempotent — it no-ops on a pre-baked AMI.
 
 > **Production tip — pin the AMI.** CloudFormation re-resolves SSM `/latest/`
@@ -739,14 +739,15 @@ pcs-ml-cluster-deploy-all.yaml                    ← user deploys this
       • MonitoringRole=compute → DCGM Exporter
       • Same external script pattern as compute CNG
 
-Boot scripts (fetched at first boot from S3: s3://<S3BucketName>/<S3KeyPrefix>scripts/):
-  assets/scripts/install-enroot-pyxis.sh           ← Enroot 3.5.0 + Pyxis 0.20.0
+Lifecycle-action scripts (fetched by the PCS agent from S3: s3://<S3BucketName>/<S3KeyPrefix>scripts/):
+  assets/scripts/needrestart-guard.sh             ← keep security upgrades from restarting slurmd
+  assets/scripts/mount-openzfs-home.sh            ← FSx OpenZFS → /home
+  assets/scripts/mount-lustre-fsx.sh              ← FSx Lustre → /fsx
   assets/scripts/setup-directory.sh               ← multi-user directory (server + client)
-
-External boot scripts (fetched from GitHub):
-  aws-parallelcluster-monitoring post-install.sh   ← monitoring stack installer
-    (https://github.com/aws-samples/aws-parallelcluster-monitoring)
-    fetched from: ${MonitoringRepo} @ ${MonitoringVersion}
+  assets/scripts/install-enroot-pyxis.sh           ← Enroot 3.5.0 + Pyxis 0.20.0
+  assets/scripts/install-monitoring.sh            ← monitoring stack installer wrapper
+    (fetches aws-parallelcluster-monitoring post-install.sh from
+    GitHub: ${MonitoringRepo} @ ${MonitoringVersion})
 
 Helper scripts (NOT run at boot — for admin use on the login node):
   assets/scripts/ldap-add-user.sh                 ← add POSIX users to LDAP directory
@@ -779,7 +780,7 @@ numbers is in **[tests/README.md](./tests/README.md)**.
 
 In this repo:
 - [Parameter reference](./docs/PARAMETERS.md) — every deploy-all parameter and default
-- [Operations guide](./docs/OPERATIONS.md) — version trade-offs, AMI pinning, monitoring/DCGM, FSx coupling, Lustre tuning, production settings
+- [Operations guide](./docs/OPERATIONS.md) — version trade-offs, AMI pinning, monitoring/DCGM, FSx coupling, Lustre tuning, production settings, migration notes from UserData-based releases
 - [User management guide](./docs/USER-MANAGEMENT.md) — multi-user setup with OpenLDAP (add/remove users, groups, Slurm accounting)
 - [Jupyter on a compute node](./docs/JUPYTER.md) — run Jupyter as a Slurm job, browser access via SSM port forwarding
 - [IAM permissions guide](./docs/IAM.md) — cluster admin / cluster user roles, policy deploy, security considerations

@@ -67,7 +67,7 @@ sudo tail -1 /var/log/amazon/pcs/lifecycle/actions/nodeBootstrapped/install-enro
 ```
 
 **Expected:** `enroot` on `PATH`; a `spank_pyxis.so` under the **cluster's** Slurm version
-dir, and the plugstack `pyxis.conf` referencing that exact path; post-install log exits 0.
+dir, and the plugstack `pyxis.conf` referencing that exact path; the install log ends exit=0.
 The Test 1/6/7 container jobs are the functional proof that Pyxis works.
 
 > **⚠️ Regression-test rule for `assets/scripts/install-enroot-pyxis.sh`.** This script has bitten
@@ -84,7 +84,7 @@ The Test 1/6/7 container jobs are the functional proof that Pyxis works.
 >   change the AMI path until you rebuild. Build an AMI per supported `SlurmVersion`,
 >   deploy a cluster pinned to it (`AmiId=<ami-xxx>` + `InstallEnrootPyxis=false`), and
 >   run a container job.
-> - **On a clean first boot**, not a hand-patched node — post-install runs before
+> - **On a clean first boot**, not a hand-patched node — the install action runs before
 >   slurmd/profile.d/controller exist, and several bugs only appear there.
 
 ---
