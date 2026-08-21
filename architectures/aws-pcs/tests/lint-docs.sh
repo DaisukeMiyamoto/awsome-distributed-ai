@@ -86,9 +86,19 @@ fi
 
 # 5. Every lifecycle script referenced by the templates must exist in
 #    assets/scripts/ (a typo'd ScriptLocation only fails at node boot,
-#    which costs a 30-minute deploy to discover).
+#    which costs a 30-minute deploy to discover) — AND be listed in the
+#    publish manifest. The manifest is an explicit allowlist: a script
+#    missing from it never reaches the production bucket, so post-merge
+#    deploys would fail at the agent's script download (mount scripts
+#    TERMINATE — a node replace loop). Skipped when the manifest is absent
+#    (e.g. a partial checkout).
+MANIFEST="../../.github/template-publish-manifest.yml"
 for scr in $(grep -hoE 'scripts/[a-z0-9-]+\.sh' assets/add-cng*.yaml | sort -u); do
   [ -f "assets/$scr" ] || report "lifecycle script assets/$scr is referenced by a template but does not exist"
+  if [ -f "$MANIFEST" ]; then
+    grep -q "key: aws-pcs/$scr" "$MANIFEST" \
+      || report "assets/$scr is referenced by a template but missing from .github/template-publish-manifest.yml (would not be published to the production bucket)"
+  fi
 done
 
 # 6. Same-file Markdown anchor links in README.md resolve to a real heading.
