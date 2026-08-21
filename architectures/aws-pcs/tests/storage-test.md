@@ -204,11 +204,6 @@ counters on the `efa` net growing while `tcp` stays ~flat.
 
 ### Layer 4 — benchmarks (compare against an EFA-disabled deployment)
 
-The honest TCP baseline is a **separate cluster deployed with
-`FSxLustreEnableEfa=false` at the same Capacity / throughput tier** — do not
-derive it by deleting the efa LNet NIs on an EFA cluster (that produces a
-degraded reconnect state, not a representative TCP configuration).
-
 > Ubuntu 24.04 has no `ior` package — build it (`mdtest` comes with it):
 > `curl -fsSLO https://github.com/hpc/ior/releases/download/4.0.0/ior-4.0.0.tar.gz
 > && tar xzf ior-4.0.0.tar.gz && cd ior-4.0.0 && ./configure && make -j && sudo make install`
@@ -216,15 +211,20 @@ degraded reconnect state, not a representative TCP configuration).
 > fio (direct=1) for reads**: ior's same-node write-then-read hits the client
 > page cache, and its `--posix.odirect` read aborts on Lustre (verified rc=255).
 
+The whole measurement set is scripted as
+[`tests/fsx-bench-suite.sh`](./fsx-bench-suite.sh) — ior writes (1 MiB /
+16 MiB), fio cold direct reads/writes, mdtest ×3, gdsio (on GPU nodes), and
+the LNet per-net send-counter attribution, with page-cache drops between
+phases. Run one label per configuration and diff the result files:
+
 ```bash
-mkdir -p /fsx/iorbench && cd /fsx/iorbench
-mpirun -np 16 --oversubscribe ior -w -t 1m -b 2g -F -e -g -o /fsx/iorbench/ior.dat
-fio --name=seqw --directory=/fsx/iorbench --rw=write --bs=1M --size=4G \
-    --numjobs=8 --direct=1 --group_reporting --unlink=1
-sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
-fio --name=seqr --directory=/fsx/iorbench --rw=read --bs=1M --size=4G \
-    --numjobs=8 --direct=1 --group_reporting
+sudo ./fsx-bench-suite.sh efa-tier250          # on the EFA cluster
+sudo ./fsx-bench-suite.sh tcp-tier250          # on the non-EFA cluster
+# results land in /fsx/bench-results/<label>.txt
 ```
+
+mdtest run-to-run stddev is ~10% — treat single runs as indicative only
+(the suite runs 3 iterations).
 
 Reference numbers — p6-b200.48xlarge, two same-spec deployments
 (19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate ~4.8 GB/s), single

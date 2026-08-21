@@ -184,6 +184,13 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
 
 ## Testing / docs
 
+- [ ] 🟢 **Promote `tests/fsx-bench-suite.sh` to `micro-benchmarks/`.** The FSx
+  for Lustre single-client suite (ior/fio/mdtest/gdsio + LNet transport
+  attribution) is PCS-agnostic; once it has been exercised beyond the aws-pcs
+  context, move it to `micro-benchmarks/fsx-lustre-benchmark/` with its own
+  README so HyperPod/ParallelCluster users can pick it up directly.
+
+
 - [ ] 🟡 **Automate the validation matrix.** The `tests/` guide is run manually; add a
   script that deploys, runs the CPU/GPU/NCCL/FSDP checks, and asserts the expected results
   for CI-style regression testing.
