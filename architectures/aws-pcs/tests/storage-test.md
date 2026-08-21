@@ -209,7 +209,7 @@ counters on the `efa` net growing while `tcp` stays ~flat.
 > && tar xzf ior-4.0.0.tar.gz && cd ior-4.0.0 && ./configure && make -j && sudo make install`
 > (needs `fio openmpi-bin libopenmpi-dev make gcc`). Use **ior for writes and
 > fio (direct=1) for reads**: ior's same-node write-then-read hits the client
-> page cache, and its `--posix.odirect` read aborts on Lustre (verified rc=255).
+> page cache, and its `--posix.odirect` read aborts on Lustre.
 
 The whole measurement set is scripted as
 [`tests/fsx-bench-suite.sh`](./fsx-bench-suite.sh) — ior writes (1 MiB /
@@ -226,10 +226,9 @@ sudo ./fsx-bench-suite.sh tcp-tier250          # on the non-EFA cluster
 mdtest run-to-run stddev is ~10% — treat single runs as indicative only
 (the suite runs 3 iterations).
 
-Reference numbers — p6-b200.48xlarge, two same-spec deployments
-(19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate ~4.8 GB/s), single
-client, 2026-08-21. The EFA numbers reproduced a previous deployment within
-±1%:
+Reference numbers — p6-b200.48xlarge, single client, same-spec
+deployments (19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate
+~4.8 GB/s):
 
 | Benchmark (untuned) | EFA-disabled cluster | EFA-enabled cluster | delta |
 |---|---|---|---|
@@ -245,11 +244,10 @@ burst ceiling, not sustained disk throughput.
 ² Metadata is MDS-bound; the transport does not measurably change mdtest at
 this scale.
 
-**Structural note.** An EFA-enabled filesystem at this size provisions a
-**single large OST** (the non-EFA equivalent had 16) — `lfs setstripe -c -1`
-is a no-op, and per-OST client limits apply to one target. The FSx server
-caps `max_pages_per_rpc` at 256 (`max_brw_size` 1 MiB), so the OPERATIONS
-§4.2 `max_pages_per_rpc=1024` setting does not take effect on FSx.
+**Structural notes.** EFA-enabled filesystems provision a **single large
+OST** (non-EFA filesystems of the same size use many) — `lfs setstripe -c -1`
+is a no-op, and per-OST client limits apply to one target. FSx servers cap
+`max_pages_per_rpc` at 256 (`max_brw_size` 1 MiB).
 
 ### Tuning (OPERATIONS §4.2) — measured effect on the EFA cluster
 
@@ -264,10 +262,9 @@ Applying the §4.2 runtime set (`osc.*.max_rpcs_in_flight=64`,
 | **gdsio 16M GPUD write / read** | 6.7 / 5.6 GiB/s | **17.6 / 16.4 GiB/s** | **~2.6–2.9×** |
 | mdtest create/stat/remove | 12832 / 18288 / 14560 | 11949 / 17818 / 13375 | parity (within stddev) |
 
-The headline: **`osc.*.max_rpcs_in_flight=64` is what unlocks large-block GDS
-parallelism** — the single-OST layout makes the per-OST RPC limit the choke
-point. Plain POSIX streaming is already cap-bound and barely moves; metadata
-doesn't move at all.
+`osc.*.max_rpcs_in_flight=64` is the setting that matters for large-block
+GDS I/O: with a single OST, the per-OST RPC limit is the bottleneck. POSIX
+streaming is cap-bound and metadata is MDS-bound, so neither moves.
 
 ### GDS (GPU nodes)
 
@@ -284,7 +281,7 @@ sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 2 -I 0   # CPU-bo
 
 `-x 0` is the GPUDirect path; `-x 2` bounces through CPU memory.
 
-> **cufile.json warnings (verified the hard way):** the DLAMI runs cuFile
+> **cufile.json:** the DLAMI runs cuFile
 > fine with **no `/etc/cufile.json`** (built-in defaults). An empty or
 > invalid file breaks the driver (`cuFile driver open error: 5001` / `-22`),
 > and the GDS reference repo's cufile.json (`allow_compat_mode: false`) also
