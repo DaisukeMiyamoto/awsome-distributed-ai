@@ -58,6 +58,10 @@ PYXIS_RELEASE=v0.20.0
 # timing-safe. (When PCS gains a native post-install hook, the cluster Slurm version is
 # the kind of context it should likewise expose to the script.)
 PCS_SLURM_VERSION="${PCS_SLURM_VERSION:-}"
+# Lifecycle-action invocation passes the version as the first positional
+# argument (lifecycle actions cannot set environment variables); the env
+# interface remains for the custom-AMI build path and manual runs.
+if [ -n "${1:-}" ]; then PCS_SLURM_VERSION="$1"; fi
 
 # Build Pyxis ONLY for this cluster's Slurm version when it's known. Building for a
 # version the cluster doesn't run is wasted work and risks the wrong spank_pyxis.so

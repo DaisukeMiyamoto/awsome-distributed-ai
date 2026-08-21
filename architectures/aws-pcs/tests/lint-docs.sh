@@ -66,52 +66,38 @@ for prm in $params; do
   grep -q "\`$prm\`" docs/PARAMETERS.md || report "deploy-all parameter '$prm' is not documented in docs/PARAMETERS.md"
 done
 
-# 4. The needrestart/slurmd guard block must be byte-identical across the four
-#    CNG templates. It is hand-duplicated (no shared include), so an edit that
-#    lands in only some of the copies is exactly the drift this catches.
-guard_extract() {  # print the guard block: comment header through the exec line
+# 4. The NodeLifecycleActions block (needrestart guard + FSx mounts) must be
+#    byte-identical across the four CNG templates. It is hand-duplicated (no
+#    shared include), so an edit that lands in only some of the copies is
+#    exactly the drift this catches.
+lifecycle_extract() {  # print the block: NodeLifecycleActions through the end of the resource
   # Leading whitespace is stripped because the four templates legitimately nest
-  # the block at different depths. The block itself is the S3-fetch + exec
-  # wrapper for scripts/needrestart-guard.sh — see that script for the actual
-  # needrestart config. Side effect: the check cannot see RELATIVE indentation
-  # drift inside the wrapper.
-  awk '/--- Protect running jobs from unattended-upgrades \/ needrestart ---/{p=1}
-       p{print}
-       p&&/\/tmp\/needrestart-guard\.sh$/{exit}' "$1" | sed -E 's/^[[:space:]]+//'
+  # the block at different depths. The block ends where the next 2-space-indented
+  # resource ID starts (NodeLifecycleActions is the last property of the CNG).
+  # Side effect: the check cannot see RELATIVE indentation drift inside the block.
+  awk '/^      NodeLifecycleActions:/{p=1; print; next}
+       p&&/^  [A-Za-z0-9]+:/{exit}
+       p{print}' "$1" | sed -E 's/^[[:space:]]+//'
 }
-ref=$(guard_extract assets/add-cng.yaml)
+ref=$(lifecycle_extract assets/add-cng.yaml)
 if [ -z "$ref" ]; then
-  report "needrestart guard block not found in assets/add-cng.yaml"
+  report "NodeLifecycleActions block not found in assets/add-cng.yaml"
 else
   for t in add-cng-p5 add-cng-p6-b200 add-cng-p6-b300; do
-    other=$(guard_extract "assets/$t.yaml")
+    other=$(lifecycle_extract "assets/$t.yaml")
     if [ "$other" != "$ref" ]; then
-      report "needrestart guard block in assets/$t.yaml differs from assets/add-cng.yaml (keep the four copies byte-identical):"
+      report "NodeLifecycleActions block in assets/$t.yaml differs from assets/add-cng.yaml (keep the four copies byte-identical):"
       diff <(printf '%s\n' "$ref") <(printf '%s\n' "$other") | sed 's/^/    /'
     fi
   done
 fi
 
-# 5. The monitoring install block (dpkg lock wait + retry) must also be
-#    byte-identical across the four CNG templates. Same rationale as the
-#    needrestart guard: hand-duplicated UserData drifts silently otherwise.
-monitoring_extract() {
-  awk '/Monitoring stack installation/{p=1}
-       p{print}
-       p&&/Monitoring installation complete \(exit/{exit}' "$1" | sed -E 's/^[[:space:]]+//'
-}
-mref=$(monitoring_extract assets/add-cng.yaml)
-if [ -z "$mref" ]; then
-  report "monitoring install block not found in assets/add-cng.yaml"
-else
-  for t in add-cng-p5 add-cng-p6-b200 add-cng-p6-b300; do
-    other=$(monitoring_extract "assets/$t.yaml")
-    if [ "$other" != "$mref" ]; then
-      report "monitoring install block in assets/$t.yaml differs from assets/add-cng.yaml (keep the four copies byte-identical):"
-      diff <(printf '%s\n' "$mref") <(printf '%s\n' "$other") | sed 's/^/    /'
-    fi
-  done
-fi
+# 5. Every lifecycle script referenced by the templates must exist in
+#    assets/scripts/ (a typo'd ScriptLocation only fails at node boot,
+#    which costs a 30-minute deploy to discover).
+for scr in $(grep -hoE 'scripts/[a-z0-9-]+\.sh' assets/add-cng*.yaml | sort -u); do
+  [ -f "assets/$scr" ] || report "lifecycle script assets/$scr is referenced by a template but does not exist"
+done
 
 # 6. Same-file Markdown anchor links in README.md resolve to a real heading.
 #    (Cross-file and external links are out of scope — kept simple on purpose.)
@@ -125,6 +111,6 @@ while IFS= read -r anchor; do
 done < <(grep -oE '\]\(#[a-z0-9-]+\)' README.md | sed -E 's/\]\(#//; s/\)//' | sort -u)
 
 if [ "$fail" -eq 0 ]; then
-  echo "docs lint: PASS (no stale parameter references, no empty=skip wording, all deploy-all params documented, needrestart guard + monitoring install in lock-step, README anchors resolve)"
+  echo "docs lint: PASS (no stale parameter references, no empty=skip wording, all deploy-all params documented, NodeLifecycleActions in lock-step, lifecycle scripts exist, README anchors resolve)"
 fi
 exit $fail

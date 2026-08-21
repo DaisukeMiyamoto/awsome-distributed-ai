@@ -4,11 +4,15 @@
 # setup-directory.sh — Multi-user directory setup for PCS reference architecture.
 #
 # Single script for both login node (LDAP server) and compute nodes (SSSD client).
-# Called from CNG UserData when DirectoryService != "none".
+# Runs as a PCS node lifecycle action (nodeBootstrapped stage, after the FSx
+# mounts) when DirectoryService != "none".
 #
-# Usage: setup-directory.sh <role>
+# Usage: setup-directory.sh <role> [<domain-suffix> <cluster-id> <s3-bucket> <s3-prefix>]
 #   role = "server"  (login node — installs slapd, creates base OUs)
 #          "client"  (compute node — installs SSSD, points at LDAP server)
+#   The optional positional arguments mirror the environment variables below —
+#   lifecycle actions can only pass positional arguments, while the custom-AMI
+#   build path and manual runs may still use the environment interface.
 #
 # IMPORTANT — single login node only when DirectoryService=OpenLDAP-LoginNode:
 #   The OpenLDAP server runs on THE login node and its DB lives on shared
@@ -34,9 +38,26 @@
 set -euo pipefail
 
 ROLE="${1:-client}"
+# Positional arguments (lifecycle-action invocation) override the env interface.
+[ -n "${2:-}" ] && LDAP_DOMAIN_SUFFIX="$2"
+[ -n "${3:-}" ] && CLUSTER_ID="$3"
+[ -n "${4:-}" ] && S3_BUCKET="$4"
+[ -n "${5:-}" ] && S3_KEY_PREFIX="$5"
 LDAP_DOMAIN_SUFFIX="${LDAP_DOMAIN_SUFFIX:-dc=cluster,dc=internal}"
-LDAP_DOMAIN="${LDAP_DOMAIN:-cluster.internal}"
+# Derive the dotted domain from the suffix unless explicitly provided.
+LDAP_DOMAIN="${LDAP_DOMAIN:-$(echo "$LDAP_DOMAIN_SUFFIX" | sed 's/dc=//g; s/,/./g')}"
+DIRECTORY_DNS_IPS="${DIRECTORY_DNS_IPS:-}"
 LDAP_DB_DIR="/home/ldap-db"
+
+# The LDAP DB lives on shared /home — hard-require the mount so a mis-ordered
+# invocation can never silently build the DB on the local disk (where the
+# eventual NFS mount would shadow it). The mount-openzfs-home lifecycle action
+# runs earlier in the same nodeBootstrapped sequence, so this only trips if
+# the actions were reordered or the mount was skipped.
+if ! mountpoint -q /home; then
+    echo "[directory] ERROR: /home is not a mountpoint — setup-directory must run after mount-openzfs-home. Aborting." >&2
+    exit 1
+fi
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -90,10 +111,13 @@ apt_get() {
 # SERVER role — login node: install slapd + configure
 ###############################################################################
 setup_server() {
-    LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:?LDAP_ADMIN_PASSWORD must be set}"
+    # Generate a random admin password unless one was supplied via the env
+    # interface. If SSM already holds one for this cluster it is reused below,
+    # so the generated value only sticks on the very first login node.
+    LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:-$(openssl rand -base64 16)}"
     CLUSTER_ID="${CLUSTER_ID:-unknown}"
 
-    # Idempotent admin password: UserData generates a fresh random password on
+    # Idempotent admin password: a fresh random password is generated on
     # every boot, but the user DB on /home/ldap-db is PERSISTENT (survives login
     # node replacement). If we let each replacement re-randomise the password,
     # the SSM parameter (and slapd's olcRootPW) silently change while the data
