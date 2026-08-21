@@ -36,6 +36,7 @@ export FSX_FS_ID="fs-0123456789abcdef0"        # your FSx for Lustre filesystem 
 export FSX_DNS_NAME="${FSX_FS_ID}.fsx.${AWS_REGION}.amazonaws.com"
 export FSX_MOUNT_NAME="<mountname>"            # from: aws fsx describe-file-systems
 export FSX_CAPACITY="4800Gi"                   # match your FSx provisioned size
+export FSX_PV_NAME="${FSX_CLAIM}-pv"           # cluster-scoped PV, bound 1:1 to $FSX_CLAIM; keep unique per claim
 export DRA_S3_BUCKET="<your-in-region-bucket>" # S3 origin for datasets/models
 export DRA_S3_PREFIX="cosmos3"                 # prefix under the bucket
 
@@ -84,8 +85,12 @@ export OUT="/fsx/results/run"   # output dir for runs (training IMAGINAIRE_OUTPU
 
 # --- Policy eval serving ---
 export INVOCATION_PORT="8000"
-# Public post-trained policy, OR an exported action-policy checkpoint dir:
-export EVAL_CHECKPOINT="nvidia/Cosmos3-Nano-Policy-DROID"
+# The LIBERO policy server takes a LOCAL checkpoint directory on the FSx mount — it
+# does NOT resolve Hugging Face repo ids. Point this at an exported action-policy
+# checkpoint dir (DCP -> consolidated via cosmos_framework.scripts.export_model), e.g.
+# ${OUT}/checkpoints/iter_00000010/model. To eval the public nvidia/Cosmos3-Nano-Policy-DROID
+# policy, download it to FSx first and set this to that local path.
+export EVAL_CHECKPOINT="/fsx/results/run/checkpoints/iter_00000010/model"
 
 # --- Native observability (optional; see observability/README.md) ---
 # Land cosmos-framework trainer metrics in Amazon Managed Prometheus, unified
