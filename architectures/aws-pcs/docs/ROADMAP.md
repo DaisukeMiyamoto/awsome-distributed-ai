@@ -74,9 +74,10 @@ Priority: 🔴 high · 🟡 medium · 🟢 low
   Done: `scripts/install-fsx-lustre-efa.sh` runs as a lifecycle action before the
   `/fsx` mount, gated by `OnDemandEnableFSxLustreEfaClient` /
   `PseriesEnableFSxLustreEfaClient` (GDS auto-enabled on GPU nodes). Verified on
-  p6-b200 + 19200 GiB PERSISTENT_2 EFA filesystem: ior/fio show 8-12x over the
-  TCP path, gdsio confirms the GPUDirect path; procedure + reference numbers in
-  tests/storage-test.md Test 10b. *(Original scope below; mdtest covered.)*
+  p6-b200 + 19200 GiB PERSISTENT_2 EFA filesystem vs a same-spec non-EFA
+  deployment: +32-92% on 1M streaming, up to 5.6x on 16M burst reads, and
+  ~16-17 GiB/s GDS I/O with the OPERATIONS 4.2 tuning; procedure + reference
+  numbers in tests/storage-test.md Test 10b. *(Original scope below; mdtest covered.)*
   `FSxLustreEnableEfa=true` configures the *FSx server side* (PERSISTENT_2 EfaEnabled).
   The *client side* — installing the Lustre client + EFA modules, configuring LNet over
   EFA via the AWS-provided `setup.sh --optimized-for-gds`, and (for GDS) building/loading

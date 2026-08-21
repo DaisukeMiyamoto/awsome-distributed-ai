@@ -293,6 +293,8 @@ sudo lctl set_param osc.*.max_dirty_mb=256
 
 # Max pages per RPC (default 256 = 1 MB). 1024 = 4 MB per RPC.
 # Reduces per-operation overhead for large sequential I/O.
+# NOTE: FSx for Lustre servers advertise max_brw_size=1MiB, which caps this
+# at 256 — the setting is accepted but has no effect on FSx (verified).
 sudo lctl set_param osc.*.max_pages_per_rpc=1024
 
 # --- Metadata path (MDC): controls file open/stat/create throughput ---
@@ -327,6 +329,13 @@ sudo lctl set_param llite.*.statahead_max=512
 - Small PoC / evaluation deploys (default 8 RPCs is sufficient for 1–4 nodes)
 - If the filesystem is 1.2 TiB / 2 OSTs (the throughput ceiling is the
   filesystem's provisioned bandwidth, not the client's RPC parallelism)
+
+**Measured effect** (p6-b200, 19200 GiB PERSISTENT_2 tier 250, EFA): this
+set left cap-bound POSIX streaming and mdtest at parity, but raised 16 MiB
+GPUDirect Storage I/O from ~6 GiB/s to **~16-17 GiB/s** (gdsio, 8 threads) —
+`osc.*.max_rpcs_in_flight=64` is the knob that matters, because EFA-enabled
+filesystems provision a single large OST and the per-OST RPC limit becomes
+the choke point. Details in [tests/storage-test.md Test 10b](../tests/storage-test.md).
 
 ### 4.3 Lustre stripe configuration (per-directory)
 

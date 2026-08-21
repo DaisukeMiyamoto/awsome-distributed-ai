@@ -147,11 +147,11 @@ not just that the config script ran. Requires a cluster deployed with
 `FSxLustreEnableEfa=true` (+ `Capacity` at the EFA minimum for the throughput
 tier) and the client toggle on the CNG under test.
 
-> **Interpreting throughput numbers.** The filesystem's aggregate throughput
-> cap is `Capacity × PerUnitStorageThroughput` (e.g. 19200 GiB × 250 MB/s/TiB
-> ≈ 4.8 GB/s). At the tier-250 minimum, both transports can approach the cap —
-> the EFA advantage grows with the tier (it targets single-client rates beyond
-> ~10 GB/s at tiers 500/1000). Always report the cap next to the numbers.
+> **Interpreting throughput numbers.** The filesystem's nominal aggregate
+> throughput is `Capacity × PerUnitStorageThroughput` (e.g. 19200 GiB ×
+> 250 MB/s/TiB ≈ 4.8 GB/s); reads of warm server-side data and multi-rail
+> aggregation can burst well past it. Always report the tier next to the
+> numbers, and expect the EFA advantage to grow with the tier.
 
 Verification is layered — run all four on a node of the EFA-enabled CNG:
 
@@ -202,80 +202,91 @@ rm -f /fsx/efa-probe
 For per-net attribution, `sudo lnetctl net show -v` before/after shows the
 counters on the `efa` net growing while `tcp` stays ~flat.
 
-### Layer 4 — benchmark A/B (EFA vs TCP on the same node + filesystem)
+### Layer 4 — benchmarks (compare against an EFA-disabled deployment)
 
-Install the tools once (Ubuntu 24.04 repos):
-
-```bash
-sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y \
-  fio openmpi-bin libopenmpi-dev make gcc
-```
+The honest TCP baseline is a **separate cluster deployed with
+`FSxLustreEnableEfa=false` at the same Capacity / throughput tier** — do not
+derive it by deleting the efa LNet NIs on an EFA cluster (that produces a
+degraded reconnect state, not a representative TCP configuration).
 
 > Ubuntu 24.04 has no `ior` package — build it (`mdtest` comes with it):
 > `curl -fsSLO https://github.com/hpc/ior/releases/download/4.0.0/ior-4.0.0.tar.gz
 > && tar xzf ior-4.0.0.tar.gz && cd ior-4.0.0 && ./configure && make -j && sudo make install`
-> (needs `libopenmpi-dev make gcc`). Use **ior for writes and fio (direct=1)
-> for reads**: ior's same-node write-then-read hits the client page cache, and
-> its `--posix.odirect` read aborts on Lustre (verified rc=255).
-
-**B = EFA (as deployed):**
+> (needs `fio openmpi-bin libopenmpi-dev make gcc`). Use **ior for writes and
+> fio (direct=1) for reads**: ior's same-node write-then-read hits the client
+> page cache, and its `--posix.odirect` read aborts on Lustre (verified rc=255).
 
 ```bash
 mkdir -p /fsx/iorbench && cd /fsx/iorbench
 mpirun -np 16 --oversubscribe ior -w -t 1m -b 2g -F -e -g -o /fsx/iorbench/ior.dat
 fio --name=seqw --directory=/fsx/iorbench --rw=write --bs=1M --size=4G \
     --numjobs=8 --direct=1 --group_reporting --unlink=1
-fio --name=seqr --directory=/fsx/iorbench --rw=read  --bs=1M --size=4G \
+sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
+fio --name=seqr --directory=/fsx/iorbench --rw=read --bs=1M --size=4G \
     --numjobs=8 --direct=1 --group_reporting
 ```
 
-**A = TCP (remove the efa NIs from LNet; traffic falls back to TCP — no reboot):**
+Reference numbers — p6-b200.48xlarge, two same-spec deployments
+(19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate ~4.8 GB/s), single
+client, 2026-08-21. The EFA numbers reproduced a previous deployment within
+±1%:
 
-```bash
-for dev in $(ls /sys/class/infiniband/); do sudo lnetctl net del --net efa --if "$dev"; done
-sudo lnetctl net show | grep -c "@efa"        # 0
-echo 3 | sudo tee /proc/sys/vm/drop_caches
-# rerun the same ior + fio commands (new -o path for ior)
-```
-
-Re-adding EFA: `sudo systemctl restart configure-efa-fsx-lustre-client.service`
-(verified to restore all NIs). Record both runs side by side with the
-filesystem cap; **EFA must be >= TCP on both write and read**.
-
-Reference numbers — p6-b200.48xlarge, 19200 GiB PERSISTENT_2 @ tier 250
-(nominal aggregate ~4.8 GB/s), single client, 2026-08-21:
-
-| Benchmark | EFA | TCP | ratio |
+| Benchmark (untuned) | EFA-disabled cluster | EFA-enabled cluster | delta |
 |---|---|---|---|
-| ior write (16 ranks, file-per-proc) | 4740 MiB/s | 591 MiB/s | **8.0×** |
-| fio write (8 jobs, 1M, direct) | 5477 MB/s | 620 MB/s | **8.8×** |
-| fio read (8 jobs, 1M, direct) | 7754 MB/s | 620 MB/s | **12.5×** |
-| mdtest create (8 ranks, mean of 3) | 11752 ops/s | 12103 ops/s | ~parity |
-| mdtest stat (8 ranks, mean of 3) | 16291 ops/s | 13353 ops/s | +22%¹ |
-| mdtest removal (8 ranks, mean of 3) | 12578 ops/s | 12121 ops/s | ~parity |
+| ior write 1M (16 ranks, fpp) | 3618 MiB/s | 4775 MiB/s | +32% |
+| fio write 1M (8 jobs, direct) | 3968 MB/s | 5519 MB/s | +39% |
+| fio read 1M (8 jobs, direct, cold) | 4076 MB/s | 7814 MB/s | +92% |
+| fio read 16M (8 jobs, direct, cold) | 4416 MB/s | 24 800 MB/s¹ | +5.6× |
+| mdtest create/stat/remove (8 ranks, ×3) | 12622 / 17064 / 14289 | 12832 / 18288 / 14560 | parity² |
 
-¹ stat is latency-bound pure-RPC traffic (metadata RPCs ride LNet too), so a
-modest EFA advantage is plausible — but the run-to-run stddev (~10%) overlaps;
-treat metadata as "no regression, possible small win", not an EFA headline.
+¹ Above the nominal cap: the just-written data is served from server-side
+cache, and LNet multi-rail aggregates the efa NIs (plus tcp) — treat it as a
+burst ceiling, not sustained disk throughput.
+² Metadata is MDS-bound; the transport does not measurably change mdtest at
+this scale.
 
-The TCP path bottlenecks on the single ksocklnd connection over the primary
-ENA (~5 Gbps); EFA spreads across all efa NIs and reaches (and bursts past)
-the filesystem's nominal cap.
+**Structural note.** An EFA-enabled filesystem at this size provisions a
+**single large OST** (the non-EFA equivalent had 16) — `lfs setstripe -c -1`
+is a no-op, and per-OST client limits apply to one target. The FSx server
+caps `max_pages_per_rpc` at 256 (`max_brw_size` 1 MiB), so the OPERATIONS
+§4.2 `max_pages_per_rpc=1024` setting does not take effect on FSx.
 
-### GDS (GPU nodes, optional)
+### Tuning (OPERATIONS §4.2) — measured effect on the EFA cluster
+
+Applying the §4.2 runtime set (`osc.*.max_rpcs_in_flight=64`,
+`max_dirty_mb=256`, `mdc.*.max_rpcs_in_flight=64`,
+`max_mod_rpcs_in_flight=50`, llite read-ahead):
+
+| Benchmark | untuned | tuned | delta |
+|---|---|---|---|
+| ior write 1M / 16M | 4775 / 4663 MiB/s | 5049 / 4848 MiB/s | +4–6% |
+| fio write / read 1M | 5519 / 7814 MB/s | 5378 / 7751 MB/s | parity |
+| **gdsio 16M GPUD write / read** | 6.7 / 5.6 GiB/s | **17.6 / 16.4 GiB/s** | **~2.6–2.9×** |
+| mdtest create/stat/remove | 12832 / 18288 / 14560 | 11949 / 17818 / 13375 | parity (within stddev) |
+
+The headline: **`osc.*.max_rpcs_in_flight=64` is what unlocks large-block GDS
+parallelism** — the single-OST layout makes the per-OST RPC limit the choke
+point. Plain POSIX streaming is already cap-bound and barely moves; metadata
+doesn't move at all.
+
+### GDS (GPU nodes)
 
 With `--optimized-for-gds` configured, compare GDS vs POSIX reads using the
 CUDA-bundled gdsio (path varies by CUDA version):
 
 ```bash
 GDSIO=$(ls /usr/local/cuda*/gds/tools/gdsio | head -1)
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 0 -I 1   # write
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 0 -I 0   # GDS read
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 1M -x 2 -I 0   # CPU-bounce read (comparison)
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 0 -I 1   # write
+sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 0 -I 0   # GDS read
+sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 2 -I 0   # CPU-bounce read
 ```
 
-`-x 0` is the GPUDirect path; `-x 2` bounces through CPU memory. GDS read at
-or above the CPU-bounce rate confirms the nvidia-fs/cuFile path is active.
-Reference (same setup as above): GPUD write 6.34 GiB/s, GPUD read 5.75 GiB/s,
-CPU-bounce read 5.67 GiB/s — parity at this filesystem tier; the GDS latency
-advantage grows with the throughput tier.
+`-x 0` is the GPUDirect path; `-x 2` bounces through CPU memory.
+
+> **cufile.json warnings (verified the hard way):** the DLAMI runs cuFile
+> fine with **no `/etc/cufile.json`** (built-in defaults). An empty or
+> invalid file breaks the driver (`cuFile driver open error: 5001` / `-22`),
+> and the GDS reference repo's cufile.json (`allow_compat_mode: false`) also
+> fails to open on the DLAMI. If you need a config file, start from the CUDA
+> template (`/usr/local/cuda-*/gds/cufile.json`).
