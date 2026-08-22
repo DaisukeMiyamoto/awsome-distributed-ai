@@ -234,15 +234,57 @@ deployments (19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate
 |---|---|---|---|
 | ior write 1M (16 ranks, fpp) | 3618 MiB/s | 4775 MiB/s | +32% |
 | fio write 1M (8 jobs, direct) | 3968 MB/s | 5519 MB/s | +39% |
-| fio read 1M (8 jobs, direct, cold) | 4076 MB/s | 7814 MB/s | +92% |
-| fio read 16M (8 jobs, direct, cold) | 4416 MB/s | 24 800 MB/s¹ | +5.6× |
+| fio read 1M (8 jobs, direct, client-cold) | 4076 MB/s | 7814 MB/s¹ | +92% |
+| fio read 16M (8 jobs, direct, client-cold) | 4416 MB/s | 24 800 MB/s¹ | +5.6× |
 | mdtest create/stat/remove (8 ranks, ×3) | 12622 / 17064 / 14289 | 12832 / 18288 / 14560 | parity² |
 
-¹ Above the nominal cap: the just-written data is served from server-side
-cache, and LNet multi-rail aggregates the efa NIs (plus tcp) — treat it as a
-burst ceiling, not sustained disk throughput.
+¹ Above the nominal cap: `fio direct=1` + `drop_caches` clears only the
+*client* page cache, so a file the suite wrote moments earlier is re-read from
+the FSx **servers'** RAM (client-cold / server-warm), and LNet multi-rail
+aggregates the efa NIs (plus tcp) — treat these as a cache/burst ceiling, not
+sustained disk-read throughput.
 ² Metadata is MDS-bound; the transport does not measurably change mdtest at
 this scale.
+
+### Is the delta EFA, or a provisioned-throughput / burst artifact?
+
+Both clusters have the **same** provisioned aggregate (19200 GiB @ tier 250 ≈
+4.7 GB/s), so provisioned throughput cannot explain a *difference* between them
+— it is a shared constant. It is, however, the **sustained** ceiling, and it is
+what separates the transport-attributable part of the delta from the
+burst/cache part. Classifying each untuned number against that ~4.7 GB/s line:
+
+| Benchmark | EFA-disabled | vs cap | EFA-enabled | vs cap | regime |
+|---|---|---|---|---|---|
+| ior write 1M | 3618 MiB/s | 0.77× | 4775 MiB/s | ~1.0× | at cap |
+| fio write 1M | 3968 MB/s | 0.85× | 5519 MB/s | 1.18× | write-back burst |
+| fio read 1M | 4076 MB/s | 0.87× | 7814 MB/s | 1.66× | server-cache |
+| fio read 16M | 4416 MB/s | 0.94× | 24 800 MB/s | 5.3× | server-cache |
+
+- **EFA-disabled sits at/below the cap on every line.** A single TCP client
+  saturates just under the filesystem's provisioned bandwidth; that column is
+  provisioned/transport-bound. The genuine, non-cache transport gain is the
+  ~15% write headroom TCP leaves on the table (3968 vs the ~4700 cap) — EFA
+  closes it (ior write reaches the cap; fio write edges into write-back).
+- **The EFA-enabled reads exceed the cap because they are served from server
+  RAM, not disk** (see footnote ¹). The +92% (1M) and 5.6× (16M) read deltas
+  measure how fast each transport drains the servers' cache — which multi-rail
+  EFA can and a single TCP stream cannot — not disk-read throughput.
+- **Burst credits:** the working set is a few tens of GiB on a freshly deployed
+  filesystem, so both columns were measured inside the network burst window — a
+  fair transport-vs-transport comparison, but neither is a post-burst sustained
+  number.
+
+**Consequence for interpretation.** For sustained, cache-missing, past-burst
+sequential I/O, both configurations converge toward the provisioned tier
+(~4.7 GB/s here); EFA's sequential-bandwidth lead narrows to the ~15% write
+headroom plus whatever a higher achievable tier buys. EFA's durable,
+tier-independent wins are (a) reaching the provisioned cap from a single client,
+(b) draining server-cached reads, and (c) the GDS path (§4.2 gdsio 2.6–2.9×) —
+not exceeding provisioned sequential bandwidth. To isolate the sustained-storage
+effect, use a working set well past the servers' cache and read it after
+eviction (or read data not recently written), and run long enough to exhaust
+burst credits.
 
 **Structural notes.** EFA-enabled filesystems provision a **single large
 OST** (non-EFA filesystems of the same size use many) — `lfs setstripe -c -1`
