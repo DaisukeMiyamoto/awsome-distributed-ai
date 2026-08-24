@@ -45,7 +45,7 @@ FSTAB_LINE="${DNS}:/fsx/ /home nfs noatime,nfsvers=3,sync,nconnect=16,rsize=1048
 # Already mounted — nothing to do (reboot path).
 if mountpoint -q /home; then
   echo "/home already mounted; ensuring fstab entry is present"
-  grep -qF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
+  grep -qxF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
   exit 0
 fi
 
@@ -53,7 +53,7 @@ fi
 # shared filesystem.
 mkdir -p /tmp/home
 rsync -aA /home/ /tmp/home
-grep -qF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
+grep -qxF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
 
 # Bounded retry: the OpenZFS DNS name is commonly not yet resolvable on a fresh
 # node (NFS settle race) and `mount` fails instantly. This action runs with
@@ -61,7 +61,7 @@ grep -qF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
 # retry here so TERMINATE fires only on a persistent failure.
 n=0; max=6; delay=10
 while :; do
-  if mount -a -t nfs defaults && mountpoint -q /home; then
+  if mount -a -t nfs && mountpoint -q /home; then
     break
   fi
   n=$((n + 1))
