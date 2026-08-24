@@ -32,7 +32,7 @@ it directly.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`). Drives which monitoring you get (Slurm OpenMetrics is 25.11+ only) and is also passed to the post-install lifecycle action so the right-version Pyxis is installed; see [OPERATIONS.md §1](./OPERATIONS.md#1-slurm-version-selection) |
+| `SlurmVersion` | `25.11` | Slurm version (`25.05` or `25.11`). Drives which monitoring you get (Slurm OpenMetrics is 25.11+ only) and is also passed to the `install-enroot-pyxis` lifecycle action so the right-version Pyxis is installed; see [OPERATIONS.md §1](./OPERATIONS.md#1-slurm-version-selection) |
 | `LoginNodeInstanceType` | `m6i.4xlarge` | Login node instance type |
 | `RootVolumeSize` | `300` | Root EBS volume size (GiB) on every node (login + compute); 300 leaves room for large container images (Megatron `.sqsh` ~20 GB) |
 | `AmiId` | *(empty → SSM auto-resolve)* | AMI ID for every node group. **Empty (default) auto-resolves to the latest PCS-Ready Deep Learning AMI** (Ubuntu 24.04, x86_64) from SSM (`/aws/service/pcs/ami/dlami-base-ubuntu2404/x86_64/latest/ami-id`). For production, **pin to a specific `ami-xxx`** so a later scale-out cannot drift onto a newer base. Use a custom AMI built off the PCS-Ready DLAMI base (e.g. via [`pcs-ready-dlami-with-enroot-pyxis.yaml`](../README.md#85-pre-baking-enrootpyxis-into-a-custom-ami)) when you want Enroot/Pyxis pre-baked or other customizations. The AMI must carry **PCS agent >= 1.5.0-1** (PCS-Ready DLAMI builds since 2026-07-20 — see [PCS-READY-DLAMI.md](./PCS-READY-DLAMI.md)): node setup runs through node lifecycle actions, which older agents don't support. See [OPERATIONS.md §2.5](./OPERATIONS.md#25-ami-selection-amiid--pin-in-production) |
@@ -84,10 +84,11 @@ See [GPU compute](../README.md#gpu-compute-p5p6) for instance/EFA/capacity guida
 | `DirectoryService` | `none` | Multi-user directory. `none` = single `ubuntu` user. `OpenLDAP-LoginNode` = slapd on the login node (DB on shared `/home/ldap-db`) + SSSD on all compute nodes. **Single login node only** — keep the login node group at 1 instance while enabled. See [USER-MANAGEMENT.md](./USER-MANAGEMENT.md) |
 | `DirectoryDomainSuffix` | `dc=cluster,dc=internal` | LDAP domain suffix. Only used when `DirectoryService != none` |
 
-## 5.3. Additional Cluster Configuration: Post-Install Script
+## 5.3. Additional Cluster Configuration: Container Runtime (Enroot/Pyxis)
 
-The first-boot hook that runs on every node. By default it installs the
-Enroot/Pyxis container runtime; point it at your own script to customize.
+Whether the Enroot/Pyxis container runtime is installed on every node at first
+boot. For any other first-boot customization, attach your own script to the
+compute node group's node lifecycle actions directly (PCS runs it natively).
 
 | Parameter | Default | Purpose |
 |---|---|---|

@@ -147,7 +147,7 @@ complete reference see [PARAMETERS.md](./docs/PARAMETERS.md).
 |---|---|---|
 | `DirectoryService` | `none` | `OpenLDAP-LoginNode` for a multi-user cluster. See [§8.3](#83-user-management) |
 
-**5.3. Additional Cluster Configuration: Post-Install Script**
+**5.3. Additional Cluster Configuration: Container Runtime (Enroot/Pyxis)**
 
 | Parameter | Default | Purpose |
 |---|---|---|

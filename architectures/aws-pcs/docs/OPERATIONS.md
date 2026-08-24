@@ -52,9 +52,9 @@ as a separate stack, then pass its output to the cluster.
   *Pre-baking Enroot/Pyxis into a custom AMI* section), then pass its `ami-xxx` as
   the cluster's `AmiId`. Set `InstallEnrootPyxis=false` for the
   cleanest boot — that skips the Enroot/Pyxis install entirely. (Leaving it at the
-  default — empty, which auto-installs from the templates bucket — also works on a
-  pre-baked AMI: the installer is idempotent and detects Enroot/Pyxis is already
-  present, a fast no-op; the single space just avoids the download+check.)
+  deploy-all default of `true` also works on a pre-baked AMI: the installer detects
+  Enroot/Pyxis is already present and is a fast no-op. Note `add-cng*.yaml` default to
+  `false`.)
 
 ### 2.2 The AMI is single-Slurm-version, by design
 
