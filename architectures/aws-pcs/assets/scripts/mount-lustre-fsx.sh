@@ -22,13 +22,20 @@ MOUNT_NAME="${2:?mount-name required as $2}"
 LOG=/var/log/pcs-mount-lustre-fsx.log
 exec > >(tee -a "$LOG") 2>&1
 
-TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+# -f so a 4xx/5xx body (e.g. a 401 under HttpTokens=required) becomes an empty
+# string instead of being passed through as a bogus region; --retry/timeouts to
+# ride out a throttled or slow IMDS; || true so a connection failure does not
+# kill the script on the assignment line under `set -e` — that would skip the
+# ${REGION:?} diagnostic below, and on a TERMINATE action the instance is gone
+# before anyone can read the (truncated, error-less) log.
+IMDS_CURL="curl -sf --retry 5 --retry-connrefused --connect-timeout 2 --max-time 5"
+TOKEN=$($IMDS_CURL -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 300" || true)
 if [ -n "$TOKEN" ]; then
-  REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-    http://169.254.169.254/latest/meta-data/placement/region)
+  REGION=$($IMDS_CURL -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/placement/region || true)
 else
-  REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+  REGION=$($IMDS_CURL http://169.254.169.254/latest/meta-data/placement/region || true)
 fi
 : "${REGION:?failed to resolve region from IMDS}"
 
