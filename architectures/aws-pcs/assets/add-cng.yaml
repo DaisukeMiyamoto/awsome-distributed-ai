@@ -135,6 +135,8 @@ Parameters:
   FSxLustreFilesystemId:
     Type: String
     Description: Filesystem ID for FSx for Lustre
+    AllowedPattern: '^$|^fs-[0-9a-f]{8,17}$'
+    ConstraintDescription: Must be empty (no /fsx) or a valid FSx filesystem ID
 
   FSxLustreFilesystemMountName:
     Type: String
@@ -143,6 +145,8 @@ Parameters:
   FSxOpenZFSFilesystemId:
     Type: String
     Description: Filesystem ID for FSx for OpenZFS
+    AllowedPattern: '^fs-[0-9a-f]{8,17}$'
+    ConstraintDescription: Must be a valid FSx filesystem ID (fs-xxxxxxxxxxxxxxxxx)
 
   DeployMonitoring:
     Type: String
