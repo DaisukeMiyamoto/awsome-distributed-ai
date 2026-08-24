@@ -53,7 +53,7 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
 ```
 
-Leaving `InstallEnrootPyxis` at the deploy-all default (`true`) also works on a pre-baked
+Leaving `InstallEnrootPyxis` at the default (`true`) also works on a pre-baked
 AMI: the installer detects Enroot/Pyxis is already present and is a fast idempotent no-op.
 Set it to `false` to skip the download and check entirely.
 

@@ -208,7 +208,7 @@ Parameters:
       containers. For any other first-boot customization, add your own script
       to the compute node group's node lifecycle actions — PCS supports this
       natively, so this template no longer proxies arbitrary scripts.
-    Default: 'false'
+    Default: 'true'
     AllowedValues:
       - 'true'
       - 'false'
