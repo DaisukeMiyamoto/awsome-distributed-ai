@@ -21,7 +21,9 @@ mkdir -p /etc/needrestart/conf.d
 cat > /etc/needrestart/conf.d/90-pcs-slurm.conf <<'NRCONF'
 # AWS PCS: never auto-restart slurmd — restarting it kills the jobs running
 # under it. Managed by needrestart-guard.sh (first-boot lifecycle action).
-$nrconf{override_rc} = { qr(^slurmd) => 0 };
+# Set only the slurmd key; do NOT reassign the whole %nrconf override_rc hash,
+# which would discard needrestart's shipped defaults.
+$nrconf{override_rc}{qr(^slurmd)} = 0;
 NRCONF
 
 echo "needrestart: slurmd excluded from auto-restart" | tee "$LOG"
