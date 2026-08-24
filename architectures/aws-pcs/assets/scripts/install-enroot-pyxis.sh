@@ -219,9 +219,9 @@ done
 # Use exactly the cluster's version, never a glob of all installed versions: the PCS
 # DLAMI ships several (slurm-24.11/25.05/25.11) and an OLDER scontrol fatally fails to
 # parse a NEWER slurm.conf key (e.g. 24.11 chokes on MetricsType, set by 25.11 for the
-# monitoring OpenMetrics endpoint). The version comes from PCS_SLURM_VERSION (passed by
-# the UserData from the template's SlurmVersion); fall back to the newest installed
-# version only if it wasn't provided (e.g. a manual run).
+# monitoring OpenMetrics endpoint). The version is passed as $1 by the lifecycle action
+# (from the template's SlurmVersion), with the PCS_SLURM_VERSION env var as a fallback;
+# fall back to the newest installed version only if neither was provided (e.g. a manual run).
 if [ -n "${PCS_SLURM_VERSION}" ] && [ -d "/opt/aws/pcs/scheduler/slurm-${PCS_SLURM_VERSION}/bin" ]; then
   SLURM_BIN="/opt/aws/pcs/scheduler/slurm-${PCS_SLURM_VERSION}/bin"
 else
