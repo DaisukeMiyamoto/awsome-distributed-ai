@@ -54,7 +54,24 @@ fi
 mkdir -p /tmp/home
 rsync -aA /home/ /tmp/home
 grep -qF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
-mount -a -t nfs defaults
+
+# Bounded retry: the OpenZFS DNS name is commonly not yet resolvable on a fresh
+# node (NFS settle race) and `mount` fails instantly. This action runs with
+# OnError:TERMINATE, so a bare failure replaces the node into the same window —
+# retry here so TERMINATE fires only on a persistent failure.
+n=0; max=6; delay=10
+while :; do
+  if mount -a -t nfs defaults && mountpoint -q /home; then
+    break
+  fi
+  n=$((n + 1))
+  if [ "$n" -ge "$max" ]; then
+    echo "ERROR: /home mount failed after $max attempts" >&2
+    exit 1
+  fi
+  echo "mount attempt $n/$max failed (likely NFS DNS settle race); retrying in ${delay}s"
+  sleep "$delay"
+done
 if [ "enabled" = "$(sestatus 2>/dev/null | awk '/^SELinux status:/{print $3}')" ]; then
   setsebool -P use_nfs_home_dirs 1
 fi

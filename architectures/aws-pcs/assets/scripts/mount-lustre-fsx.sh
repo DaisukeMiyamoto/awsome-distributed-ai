@@ -48,6 +48,22 @@ if mountpoint -q /fsx; then
   exit 0
 fi
 
-mount -t lustre -o noatime,flock,lazystatfs "$SOURCE" /fsx
+# Bounded retry: the FSx endpoint may not be reachable/resolvable yet on a fresh
+# node and `mount` can fail instantly. This action runs with OnError:TERMINATE,
+# so a bare failure replaces the node into the same window — retry here so
+# TERMINATE fires only on a persistent failure.
+n=0; max=6; delay=10
+while :; do
+  if mount -t lustre -o noatime,flock,lazystatfs "$SOURCE" /fsx && mountpoint -q /fsx; then
+    break
+  fi
+  n=$((n + 1))
+  if [ "$n" -ge "$max" ]; then
+    echo "ERROR: /fsx mount failed after $max attempts" >&2
+    exit 1
+  fi
+  echo "mount attempt $n/$max failed; retrying in ${delay}s"
+  sleep "$delay"
+done
 chmod 1777 /fsx
 echo "/fsx mounted from $SOURCE"
