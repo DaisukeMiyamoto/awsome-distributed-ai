@@ -47,6 +47,10 @@ Re-run this sync after every change you want to test — and **before updating a
 deployed stack** to a newer template revision, so any newly added boot scripts
 already exist in your bucket before nodes are replaced (a missing mount script
 terminates the node; see [OPERATIONS §8](./OPERATIONS.md#8-upgrading-from-userdata-based-templates-pre-lifecycle-actions)).
+A re-sync alone does **not** reach a running node: the lifecycle agent caches
+each script at first boot (`ScriptCachingPolicy: CACHE_ONCE`) and never
+refetches, even across a reboot — replace the instance to pick up a changed
+script.
 
 ## 3. Deploy pointing at your bucket
 

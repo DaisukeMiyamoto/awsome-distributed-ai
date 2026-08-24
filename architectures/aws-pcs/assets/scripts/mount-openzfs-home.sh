@@ -42,26 +42,46 @@ fi
 DNS="${FS_ID}.fsx.${REGION}.amazonaws.com"
 FSTAB_LINE="${DNS}:/fsx/ /home nfs noatime,nfsvers=3,sync,nconnect=16,rsize=1048576,wsize=1048576,defaults 0 0"
 
+# Keep exactly one active /home entry. Match the mountpoint field, not the whole
+# line, so a changed FS id/region (stack update) rewrites it instead of leaving
+# a stale second entry that breaks `mount`/reboot. Commented lines are ignored.
+ensure_home_fstab_entry() {
+  grep -qxF "$FSTAB_LINE" /etc/fstab && return 0
+  sed -i -E '\|^[^#].*[[:space:]]/home[[:space:]]|d' /etc/fstab
+  echo "$FSTAB_LINE" >> /etc/fstab
+}
+
+# Tolerate rsync 23/24 so they don't trip `set -e` into a TERMINATE: 23 is a
+# non-trivial ACL hitting an NFSv3 export with no ACL protocol, 24 a source file
+# vanishing mid-copy. Any other non-zero code is real and propagates.
+safe_rsync() {
+  local rc=0
+  rsync "$@" || rc=$?
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 23 ] || [ "$rc" -eq 24 ] || return "$rc"
+}
+
 # Already mounted — nothing to do (reboot path).
 if mountpoint -q /home; then
   echo "/home already mounted; ensuring fstab entry is present"
-  grep -qxF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
+  ensure_home_fstab_entry
   exit 0
 fi
 
 # Stash the local /home, mount over it, restore any file that is not on the
 # shared filesystem.
 mkdir -p /tmp/home
-rsync -aA /home/ /tmp/home
-grep -qxF "$FSTAB_LINE" /etc/fstab || echo "$FSTAB_LINE" >> /etc/fstab
+safe_rsync -aA /home/ /tmp/home
+ensure_home_fstab_entry
 
 # Bounded retry: the OpenZFS DNS name is commonly not yet resolvable on a fresh
 # node (NFS settle race) and `mount` fails instantly. This action runs with
 # OnError:TERMINATE, so a bare failure replaces the node into the same window —
 # retry here so TERMINATE fires only on a persistent failure.
+# Mount /home specifically (not `mount -a`) so an unrelated NFS entry a custom
+# AMI may carry can't fail this action and terminate the node.
 n=0; max=6; delay=10
 while :; do
-  if mount -a -t nfs && mountpoint -q /home; then
+  if mount /home && mountpoint -q /home; then
     break
   fi
   n=$((n + 1))
@@ -75,7 +95,7 @@ done
 if [ "enabled" = "$(sestatus 2>/dev/null | awk '/^SELinux status:/{print $3}')" ]; then
   setsebool -P use_nfs_home_dirs 1
 fi
-rsync -aA --ignore-existing /tmp/home/ /home
+safe_rsync -aA --ignore-existing /tmp/home/ /home
 rm -rf /tmp/home
 
 echo "/home mounted from $DNS"

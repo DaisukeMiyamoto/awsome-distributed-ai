@@ -557,7 +557,7 @@ NCCL, FSDP), see the [Test & Validation Guide](tests/README.md).
 > (`v2.6.4`+ carry the other PCS fixes: node-local `/opt` install + the Docker-29.x
 > DCGM tag). Override `DcgmExporterImage`
 > only to pin a different build; details:
-> [OPERATIONS.md §3.1](./docs/OPERATIONS.md#31-dcgmexporterimage-the-default-and-when-to-change-it).
+> [OPERATIONS.md §3.1](./docs/OPERATIONS.md#31-dcgmexporterimage--the-default-and-when-to-change-it).
 
 > **Note — node-type tagging.** The monitoring stack identifies login vs compute nodes by
 > the `monitoring-role` tag (`login`/`compute`), **not** the EC2 `Name` tag — so the `Name`
