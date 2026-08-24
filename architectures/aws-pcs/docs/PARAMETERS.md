@@ -114,5 +114,5 @@ availability and the "deploy small, expand after" tip.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `S3BucketName` | `awsome-distributed-ai` | S3 bucket the nested templates are fetched from |
-| `S3KeyPrefix` | `templates/aws-pcs/` | S3 key prefix for the nested templates |
+| `S3BucketName` | `awsome-distributed-ai` | S3 bucket the nested templates **and the boot-time lifecycle scripts** (`scripts/*.sh`) are fetched from. The compute instance role's S3 read is load-bearing: a node that cannot fetch its mount script is terminated and replaced. Point this at your own bucket only after syncing **both** templates and scripts to it (see [DEPLOY-TESTING](./DEPLOY-TESTING.md)). |
+| `S3KeyPrefix` | `templates/aws-pcs/` | S3 key prefix for the nested templates and the `scripts/` boot scripts under it |

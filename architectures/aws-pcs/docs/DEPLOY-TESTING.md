@@ -43,7 +43,10 @@ This uploads both the CloudFormation templates (`*.yaml`) and the boot scripts (
 in one command. The scripts live under `assets/scripts/`, so they land at
 `s3://${BUCKET}/${PREFIX}scripts/` — which is exactly where the node lifecycle
 actions fetch them (e.g. `s3://<S3BucketName>/<S3KeyPrefix>scripts/install-enroot-pyxis.sh`).
-Re-run this sync after every change you want to test.
+Re-run this sync after every change you want to test — and **before updating a
+deployed stack** to a newer template revision, so any newly added boot scripts
+already exist in your bucket before nodes are replaced (a missing mount script
+terminates the node; see [OPERATIONS §8](./OPERATIONS.md#8-upgrading-from-userdata-based-templates-pre-lifecycle-actions)).
 
 ## 3. Deploy pointing at your bucket
 

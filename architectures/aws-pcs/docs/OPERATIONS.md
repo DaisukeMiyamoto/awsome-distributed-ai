@@ -512,10 +512,27 @@ Existing deployed stacks keep working as-is (their nodes carry the old
 UserData); the changes below apply when you **update a stack to, or deploy
 with, the current templates**.
 
+**Updating an existing stack cycles the whole fleet.** The compute node
+group's launch-template version tracks `LatestVersionNumber`, and adding
+`NodeLifecycleActions` is itself a CNG config change, so the update triggers
+PCS's DRAIN strategy: running jobs finish, then **every node is replaced**. No
+jobs are lost, but a cluster with a multi-day run in flight will cycle all of
+its nodes — plan the update window accordingly. This is the opposite of
+*not* updating, where the fleet is left untouched.
+
+**Before updating a stack that points at your own `S3BucketName` /
+`S3KeyPrefix`,** sync the current scripts to that bucket first (see
+[DEPLOY-TESTING §2](./DEPLOY-TESTING.md)). This revision adds
+`needrestart-guard.sh`, `mount-openzfs-home.sh`, `mount-lustre-fsx.sh`, and
+`install-monitoring.sh` — none of which exist in a bucket populated before
+they were added. A bucket missing them fails the `mount-openzfs-home`
+lifecycle action on **every** replacement node (`OnError: TERMINATE`): an
+unbounded replace loop that drains the cluster to zero.
+
 | Change | What to do |
 |---|---|
 | `PostInstallScriptUrl` / `PostInstallScriptArgs` replaced by **`InstallEnrootPyxis`** (`true`/`false`) | The generic hook only ever shipped the Enroot/Pyxis installer. Was skipping with a single space? Set `InstallEnrootPyxis=false`. Running a **custom** script? Attach it to the compute node group's node lifecycle actions directly — PCS runs it natively, with per-script logs and error policy. |
 | The AMI must carry **PCS agent >= 1.5.0-1** | PCS-Ready DLAMI builds since 2026-07-20 qualify ([PCS-READY-DLAMI.md](./PCS-READY-DLAMI.md)); the default SSM `latest` resolution always does. Re-base pinned or custom AMIs built off an older base before updating. |
 | Boot logs moved to `/var/log/amazon/pcs/lifecycle/actions/<stage>/<name>.log` (root-readable) | Update runbooks that read `/var/log/pcs-post-install.log`, `monitoring-install.log`, or `directory-setup.log`. The agent's own download/orchestration log is `.../actions/executor.log`. |
-| A failed `/home` or `/fsx` mount now **terminates and replaces the node** | Previously the node stayed in service without shared storage. An FSx-side problem now shows up as node churn — check the mount script's lifecycle log on a surviving node and the CNG's instance history. |
+| A failed `/home` or `/fsx` mount now **terminates and replaces the node** | Previously the node stayed in service without shared storage. An FSx-side problem now shows up as node churn — check the mount script's lifecycle log (local to the instance) and the CNG's instance history. A *fleet-wide* mount failure leaves **no surviving node** to read logs from; to debug that case, temporarily set the mount action's `OnError: STOP_SEQUENCE` to keep a failed instance for inspection, or add the AWS-maintained `configure-cloudwatch-logs.sh` lifecycle action to ship the log directory off-instance. |
 | Custom-script argument contract | The Enroot/Pyxis installer receives the cluster's `SlurmVersion` as its first argument (`PCS_SLURM_VERSION` env still honored on the custom-AMI build path). |
