@@ -128,14 +128,29 @@ setup_server() {
     # the final put-parameter becomes a no-op overwrite. Only the very first
     # login node (empty SSM) keeps the script-generated random password.
     if [ "${CLUSTER_ID}" != "unknown" ]; then
-        local existing_pw
-        existing_pw=$(aws ssm get-parameter \
-            --name "/pcs/${CLUSTER_ID}/ldap/admin-password" \
-            --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-        if [ -n "$existing_pw" ] && [ "$existing_pw" != "None" ]; then
-            echo "[directory-server] Reusing existing admin password from SSM (login node replacement / re-run)."
-            LDAP_ADMIN_PASSWORD="$existing_pw"
+        # Distinguish "no password stored yet" from "the read failed": collapsing
+        # every error to "" would let a transient AccessDenied/throttling during a
+        # login-node replacement regenerate the password and --overwrite SSM while
+        # the DB on /home/ldap-db persists — the silent rotation this block exists
+        # to prevent. (if/else captures rc without tripping set -e.)
+        local ssm_out ssm_rc
+        if ssm_out=$(aws ssm get-parameter \
+                --name "/pcs/${CLUSTER_ID}/ldap/admin-password" \
+                --with-decryption --query 'Parameter.Value' --output text 2>&1); then
+            ssm_rc=0
+        else
+            ssm_rc=$?
         fi
+        if [ "$ssm_rc" -eq 0 ] && [ -n "$ssm_out" ] && [ "$ssm_out" != "None" ]; then
+            echo "[directory-server] Reusing existing admin password from SSM (login node replacement / re-run)."
+            LDAP_ADMIN_PASSWORD="$ssm_out"
+        elif [ "$ssm_rc" -ne 0 ] && ! printf '%s' "$ssm_out" | grep -q 'ParameterNotFound'; then
+            echo "[directory-server] ERROR: reading the admin password from SSM failed (not ParameterNotFound): ${ssm_out}" >&2
+            echo "[directory-server] Refusing to regenerate — a transient read failure would silently rotate the admin password against the persistent /home/ldap-db." >&2
+            return 1
+        fi
+        # rc==0 with empty/None, or a genuine ParameterNotFound: this is the first
+        # login node — keep the password generated above.
     fi
 
     echo "[directory-server] Running apt-get update..."
