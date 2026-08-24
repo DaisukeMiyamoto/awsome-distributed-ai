@@ -169,14 +169,14 @@ Parameters:
   MonitoringVersion:
     Type: String
     Description: >-
-      aws-parallelcluster-monitoring git ref to install (release tag, branch, or
-      'latest'). Used both to fetch post-install.sh from MonitoringRepo at this
+      aws-parallelcluster-monitoring git ref to install (release tag or branch).
+      Used both to fetch post-install.sh from MonitoringRepo at this
       ref and as the ref argument passed to it. Pin to a release tag for upstream
       stability in production; a branch name (e.g. a fork's dev branch) can be
       used together with MonitoringRepo for testing unreleased changes.
     Default: 'v2.10.2'
     AllowedPattern: '^[A-Za-z0-9._/-]+$'
-    ConstraintDescription: Must be a git ref (tag, branch, or 'latest')
+    ConstraintDescription: Must be a git ref (tag or branch)
 
   MonitoringRepo:
     Type: String

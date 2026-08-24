@@ -435,8 +435,8 @@ Parameters:
   MonitoringVersion:
     Type: String
     Description: >-
-      aws-parallelcluster-monitoring git ref to install (release tag, branch, or
-      'latest'). Passed down to the CNG stacks, which fetch post-install.sh from
+      aws-parallelcluster-monitoring git ref to install (release tag or branch).
+      Passed down to the CNG stacks, which fetch post-install.sh from
       MonitoringRepo at this ref and pass it as the ref argument. Pin to a release
       tag in production; a branch name + MonitoringRepo fork can be used to test
       unreleased changes.
