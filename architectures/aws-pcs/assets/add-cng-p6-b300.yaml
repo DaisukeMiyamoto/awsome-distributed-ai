@@ -169,6 +169,8 @@ Parameters:
       stability in production; a branch name (e.g. a fork's dev branch) can be
       used together with MonitoringRepo for testing unreleased changes.
     Default: 'v2.10.2'
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+    ConstraintDescription: Must be a git ref (tag, branch, or 'latest')
 
   MonitoringRepo:
     Type: String
@@ -177,6 +179,8 @@ Parameters:
       together with a branch in MonitoringVersion to test unreleased changes before
       they merge upstream.
     Default: 'aws-samples/aws-parallelcluster-monitoring'
+    AllowedPattern: '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+    ConstraintDescription: Must be a GitHub "owner/repo"
 
   DcgmExporterImage:
     Type: String
