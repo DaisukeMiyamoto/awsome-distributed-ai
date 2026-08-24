@@ -481,7 +481,7 @@ restart):
 
 ```perl
 # /etc/needrestart/conf.d/90-pcs-slurm.conf  (written by scripts/needrestart-guard.sh)
-$nrconf{override_rc} = { qr(^slurmd) => 0 };
+$nrconf{override_rc}{qr(^slurmd)} = 0;
 ```
 
 `slurmd` is the only Slurm systemd service on these nodes (the controller is managed by
