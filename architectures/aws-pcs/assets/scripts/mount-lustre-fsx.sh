@@ -65,5 +65,8 @@ while :; do
   echo "mount attempt $n/$max failed; retrying in ${delay}s"
   sleep "$delay"
 done
-chmod 1777 /fsx
+# Sticky-world-writable shared root (like /tmp). Don't gate the exit on it: the
+# mount already succeeded, and a chmod failure here is shared-side (root_squash /
+# read-only fs / MDS), so TERMINATE would just replace-loop. Warn and continue.
+chmod 1777 /fsx || echo "WARNING: chmod 1777 /fsx failed though the mount is healthy (shared-side condition); leaving perms, not terminating." >&2
 echo "/fsx mounted from $SOURCE"
