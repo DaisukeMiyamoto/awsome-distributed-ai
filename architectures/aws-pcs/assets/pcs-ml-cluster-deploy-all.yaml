@@ -635,7 +635,6 @@ Rules:
           (EFA on FSx for Lustre is a PERSISTENT_2-only feature).
 
 Conditions:
-  UseLocalTemplates: !Equals [!Ref S3BucketName, 'local']
   DeployOnDemandCNGEnabled: !Equals [!Ref DeployOnDemandCNG, 'true']
   DirectoryEnabled: !Not [!Equals [!Ref DirectoryService, 'none']]
   DeployPseriesCNGEnabled: !Equals [!Ref DeployPseriesCNG, 'true']
@@ -667,10 +666,7 @@ Resources:
   PrerequisitesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - ml-cluster-prerequisites.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}ml-cluster-prerequisites.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}ml-cluster-prerequisites.yaml'
       Parameters:
         VPCName: !Sub '${AWS::StackName}-VPC'
         PrimarySubnetAZ: !Ref PrimarySubnetAZ
@@ -696,10 +692,7 @@ Resources:
   ClusterStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - cluster.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}cluster.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}cluster.yaml'
       Parameters:
         ClusterName: !Sub '${AWS::StackName}'
         PrivateSubnetId: !GetAtt PrerequisitesStack.Outputs.PrimaryPrivateSubnet
@@ -750,10 +743,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: ClusterStack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - add-cng.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng.yaml'
       Parameters:
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
         ClusterName: !Sub '${AWS::StackName}'
@@ -800,10 +790,7 @@ Resources:
     Condition: DeployOnDemandCNGEnabled
     DependsOn: ClusterStack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - add-cng.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng.yaml'
       Parameters:
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
         ClusterName: !Sub '${AWS::StackName}'
@@ -848,10 +835,7 @@ Resources:
     Condition: PseriesIsP5
     DependsOn: ClusterStack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - add-cng-p5.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p5.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p5.yaml'
       Parameters:
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
         ClusterName: !Sub '${AWS::StackName}'
@@ -892,10 +876,7 @@ Resources:
     Condition: PseriesIsP6B200
     DependsOn: ClusterStack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - add-cng-p6-b200.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p6-b200.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p6-b200.yaml'
       Parameters:
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
         ClusterName: !Sub '${AWS::StackName}'
@@ -936,10 +917,7 @@ Resources:
     Condition: PseriesIsP6B300
     DependsOn: ClusterStack
     Properties:
-      TemplateURL: !If
-        - UseLocalTemplates
-        - add-cng-p6-b300.yaml
-        - !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p6-b300.yaml'
+      TemplateURL: !Sub 'https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}add-cng-p6-b300.yaml'
       Parameters:
         ClusterId: !GetAtt ClusterStack.Outputs.ClusterId
         ClusterName: !Sub '${AWS::StackName}'
