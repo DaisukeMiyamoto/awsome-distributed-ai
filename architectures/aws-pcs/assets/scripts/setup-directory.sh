@@ -193,6 +193,21 @@ EOF
         sleep 1
     done
 
+    # Verify the admin credential actually binds before creating OUs or writing
+    # SSM. The debconf-seeded olcRootPW above only takes effect when slapd is
+    # installed fresh; if slapd was already present, apt-get was a no-op and
+    # slapd still holds its previous admin password. The configured
+    # LDAP_ADMIN_PASSWORD would then fail to bind — the OU creation below would
+    # silently swallow the error (|| true) and, worse, we would overwrite SSM
+    # with a credential that does not work. Fail loudly and leave SSM untouched.
+    if ! ldapwhoami -x -H ldap://localhost \
+         -D "cn=admin,${LDAP_DOMAIN_SUFFIX}" -w "${LDAP_ADMIN_PASSWORD}" >/dev/null 2>&1; then
+        echo "[directory-server] ERROR: admin bind failed — the configured password does not match slapd's olcRootPW." >&2
+        echo "[directory-server] slapd was likely already installed with a different password; refusing to overwrite SSM with a non-binding credential." >&2
+        return 1
+    fi
+    echo "[directory-server] Admin credential verified (ldapwhoami)."
+
     echo "[directory-server] Creating base OUs..."
     ldapadd -x -H ldap://localhost -D "cn=admin,${LDAP_DOMAIN_SUFFIX}" -w "${LDAP_ADMIN_PASSWORD}" <<EOF 2>/dev/null || true
 dn: ou=People,${LDAP_DOMAIN_SUFFIX}
