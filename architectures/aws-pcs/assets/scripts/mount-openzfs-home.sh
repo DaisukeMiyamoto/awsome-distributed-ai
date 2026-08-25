@@ -10,7 +10,10 @@
 # On first boot the DLAMI has a local /home already populated (at least
 # /home/ubuntu). We rsync it aside, mount the shared FSx OpenZFS export at
 # /home, then rsync the aside back in with --ignore-existing so any pre-existing
-# shared state wins. IMDS region is used to build the FSx DNS name.
+# shared state wins. The restore skips perms/dir-times (--no-perms
+# --omit-dir-times) so it only fills in missing files and never rewrites the
+# mode/times of a directory that already exists on the shared export (e.g. an
+# admin-tightened /home/ubuntu). IMDS region is used to build the FSx DNS name.
 #
 # Runs as root. Idempotent — safe to re-run on reboot when the fstab entry is
 # already present and /home is already mounted.
@@ -95,7 +98,7 @@ done
 if [ "enabled" = "$(sestatus 2>/dev/null | awk '/^SELinux status:/{print $3}')" ]; then
   setsebool -P use_nfs_home_dirs 1
 fi
-safe_rsync -aA --ignore-existing /tmp/home/ /home
+safe_rsync -aA --ignore-existing --no-perms --omit-dir-times /tmp/home/ /home
 rm -rf /tmp/home
 
 echo "/home mounted from $DNS"

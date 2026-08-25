@@ -666,7 +666,7 @@ CPG from the GPU templates is a future item.)
 **Multi-NIC bandwidth needs multiple MPI pairs.** A single MPI pair uses one
 libfabric endpoint and only one NIC. Use `osu_mbw_mr -np 32 -N 16` (or your
 application's natural multi-pair pattern) to actually exercise both NICs on
-hpc7a/hpc8a. See [tests/README.md Test 9](./tests/README.md#test-9-efa-on-cpu-hpc-instances-hpc6a--hpc7a--hpc8a)
+hpc7a/hpc8a. See [tests/hpc-efa-test.md Test 9](./tests/hpc-efa-test.md#test-9-efa-on-cpu-hpc-instances-hpc6a--hpc7a--hpc8a)
 for the full benchmark setup and validated bandwidth numbers.
 
 ### 8.7 Deploying updated templates before they are published
