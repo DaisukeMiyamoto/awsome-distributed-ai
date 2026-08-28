@@ -211,24 +211,35 @@ counters on the `efa` net growing while `tcp` stays ~flat.
 > fio (direct=1) for reads**: ior's same-node write-then-read hits the client
 > page cache, and its `--posix.odirect` read aborts on Lustre.
 
-The whole measurement set is scripted as
-[`tests/fsx-bench-suite.sh`](./fsx-bench-suite.sh) — ior writes (1 MiB /
-16 MiB), fio cold direct reads/writes, mdtest ×3, gdsio (on GPU nodes), and
-the LNet per-net send-counter attribution, with page-cache drops between
-phases. Run one label per configuration and diff the result files:
+#### Method — run the scripts
+
+The runnable job scripts live in [`tests/scripts/`](./scripts); the doc keeps
+only the reference values below. Two scripts, both single-client, both
+appending to `<mount>/bench-results/<label>.txt`:
+
+- [`scripts/fsx-bench-suite.sh`](./scripts/fsx-bench-suite.sh) — POSIX +
+  metadata transport comparison: ior writes (1 MiB / 16 MiB), fio cold direct
+  reads/writes, mdtest ×3, and the LNet per-net send-counter attribution, with
+  page-cache drops between phases. Runs on any client (login or compute).
+- [`scripts/fsx-gds-bench.sh`](./scripts/fsx-gds-bench.sh) — GPUDirect Storage
+  (gdsio) on a **GPU node**: GPUD write/read (`-x 0`) plus a CPU-bounce read
+  (`-x 2`) to quantify the compat-mode penalty. See [GDS](#gds-gpu-nodes) below.
+
+Run one label per configuration and diff the result files:
 
 ```bash
-sudo ./fsx-bench-suite.sh efa-tier250          # on the EFA cluster
-sudo ./fsx-bench-suite.sh tcp-tier250          # on the non-EFA cluster
-# results land in /fsx/bench-results/<label>.txt
+sudo ./scripts/fsx-bench-suite.sh efa-tier250     # on the EFA cluster
+sudo ./scripts/fsx-bench-suite.sh tcp-tier250     # on the non-EFA cluster
+sudo ./scripts/fsx-gds-bench.sh efa-tier250-tuned # on a GPU node of the EFA cluster
 ```
 
 mdtest run-to-run stddev is ~10% — treat single runs as indicative only
 (the suite runs 3 iterations).
 
-Reference numbers — p6-b200.48xlarge, single client, same-spec
-deployments (19200 GiB PERSISTENT_2 @ tier 250, nominal aggregate
-~4.8 GB/s):
+#### Reference values
+
+p6-b200.48xlarge, single client, same-spec deployments (19200 GiB
+PERSISTENT_2 @ tier 250, nominal aggregate ~4.8 GB/s):
 
 | Benchmark (untuned) | EFA-disabled cluster | EFA-enabled cluster | delta |
 |---|---|---|---|
@@ -310,18 +321,26 @@ streaming is cap-bound and metadata is MDS-bound, so neither moves.
 
 ### GDS (GPU nodes)
 
-With `--optimized-for-gds` configured, compare GDS vs POSIX reads using the
-CUDA-bundled gdsio (path varies by CUDA version):
+**Why this section matters.** GPUDirect Storage (GDS) reads `/fsx` straight
+into GPU memory over the EFA fabric, bypassing the CPU bounce buffer. It is the
+one path where the EFA client + §4.2 tuning produce a large, *sustained* win
+(unlike POSIX streaming, which is cap-bound, and metadata, which is MDS-bound)
+— so it is the result that matters most for ML data loading.
+
+**Method.** Run [`scripts/fsx-gds-bench.sh`](./scripts/fsx-gds-bench.sh) on a
+GPU node (it needs the CUDA-bundled `gdsio`). It measures, per transfer size,
+GPUD write/read (`-x 0`, the GPUDirect path) and a CPU-bounce read (`-x 2`,
+storage→CPU→GPU) so the GPUD-vs-bounce delta quantifies what direct DMA buys:
 
 ```bash
-GDSIO=$(ls /usr/local/cuda*/gds/tools/gdsio | head -1)
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 0 -I 1   # write
-sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 0 -I 0   # GDS read
-sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 2 -I 0   # CPU-bounce read
+sudo ./scripts/fsx-gds-bench.sh efa-tier250-tuned   # on a GPU node
 ```
 
-`-x 0` is the GPUDirect path; `-x 2` bounces through CPU memory.
+**Reference values.** The tuned-vs-untuned GPUD numbers are in the
+[tuning table above](#tuning-operations-42--measured-effect-on-the-efa-cluster)
+(gdsio 16M GPUD write/read: 6.7 / 5.6 → **17.6 / 16.4 GiB/s**, ~2.6–2.9× — the
+largest tuning effect in the suite). The GPUD-vs-`-x 2` delta reported by the
+script isolates the compat-mode (CPU-bounce) penalty.
 
 > **cufile.json:** the DLAMI runs cuFile
 > fine with **no `/etc/cufile.json`** (built-in defaults). An empty or
@@ -329,3 +348,20 @@ sudo $GDSIO -f /fsx/iorbench/gds.dat -d 0 -w 8 -s 8G -i 16M -x 2 -I 0   # CPU-bo
 > and the GDS reference repo's cufile.json (`allow_compat_mode: false`) also
 > fails to open on the DLAMI. If you need a config file, start from the CUDA
 > template (`/usr/local/cuda-*/gds/cufile.json`).
+
+### References
+
+External, authoritative documentation for the mechanisms exercised above:
+
+- [FSx for Lustre performance](https://docs.aws.amazon.com/fsx/latest/LustreGuide/performance.html)
+  — provisioned throughput per storage tier, network burst behaviour, and the
+  per-instance baseline that bounds the sustained numbers.
+- [FSx for Lustre — Elastic Fabric Adapter (EFA) client](https://docs.aws.amazon.com/fsx/latest/LustreGuide/fsx-lustre-efa.html)
+  — the EFA/LNet client that this test suite validates.
+- [Lustre tuning parameters](https://docs.aws.amazon.com/fsx/latest/LustreGuide/performance.html#performance-tips)
+  and the [Lustre manual — tuning chapter](https://doc.lustre.org/lustre_manual.xhtml#lustretuning)
+  — the `max_rpcs_in_flight` / `max_dirty_mb` knobs applied in §4.2.
+- [NVIDIA GPUDirect Storage overview](https://docs.nvidia.com/gpudirect-storage/index.html)
+  and the [cuFile / gdsio tools guide](https://docs.nvidia.com/gpudirect-storage/tools-guide/index.html)
+  — the `gdsio` flags (`-x`, `-I`) and `cufile.json` semantics referenced by
+  the GDS script.
